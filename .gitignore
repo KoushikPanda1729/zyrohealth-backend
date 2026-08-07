@@ -1,0 +1,25 @@
+# Environment
+.env
+*.env
+
+# Local credentials reference — never commit
+CREDENTIALS.md
+
+# Firebase service account keys — never commit these
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store

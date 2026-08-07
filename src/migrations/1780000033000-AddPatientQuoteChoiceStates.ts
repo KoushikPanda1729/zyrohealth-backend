@@ -1,0 +1,19 @@
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class AddPatientQuoteChoiceStates1780000033000 implements MigrationInterface {
+  name = 'AddPatientQuoteChoiceStates1780000033000';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(
+      `ALTER TYPE "prescription_upload_requests_status_enum" ADD VALUE IF NOT EXISTS 'awaiting_patient_choice'`,
+    );
+    await queryRunner.query(
+      `ALTER TYPE "whatsapp_conversation_state_enum" ADD VALUE IF NOT EXISTS 'awaiting_quote_choice'`,
+    );
+  }
+
+  public async down(): Promise<void> {
+    // Postgres can't drop a single enum value without recreating the type
+    // — no-op, same precedent as other ADD VALUE migrations in this codebase.
+  }
+}

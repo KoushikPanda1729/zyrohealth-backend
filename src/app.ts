@@ -1,0 +1,131 @@
+import 'reflect-metadata';
+import './config/container';
+import express, {
+  Express,
+  Request,
+  Response,
+  NextFunction,
+  RequestHandler,
+} from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import { env } from './config/env';
+import { errorMiddleware } from './middleware/error.middleware';
+
+import { authRouter } from './modules/auth/auth.routes';
+import { patientsRouter } from './modules/patients/patients.routes';
+import {
+  doctorsRouter,
+  doctorPrivateRouter,
+} from './modules/doctors/doctors.routes';
+import { bookingsRouter } from './modules/bookings/bookings.routes';
+import { paymentsRouter } from './modules/payments/payments.routes';
+import { chatRouter } from './modules/chat/chat.routes';
+import { prescriptionsRouter } from './modules/prescriptions/prescriptions.routes';
+import { aiRouter } from './modules/ai/ai.routes';
+import { adminRouter } from './modules/admin/admin.routes';
+import { platformRouter } from './modules/platform/platform.routes';
+import {
+  voiceAgentRouter,
+  voiceAgentWebhookRouter,
+} from './modules/voice-agent/voice-agent.routes';
+import { phoneNumberRouter } from './modules/phone-number/phone-number.routes';
+import { medicineOrdersRouter } from './modules/medicine-orders/medicine-orders.routes';
+import { shopRouter } from './modules/shop/shop.routes';
+import { PaymentsController } from './modules/payments/payments.controller';
+import { WhatsAppWebhookController } from './modules/whatsapp/whatsapp-webhook.controller';
+import { container } from './config/container';
+
+export function createApp(): Express {
+  const app = express();
+
+  // Trust X-Forwarded-Proto/For from reverse proxies (ngrok in dev, load
+  // balancers in prod) — without this, req.protocol always reports 'http'
+  // even when the real client connected over https, which breaks Twilio's
+  // webhook signature validation (it signs the actual https:// URL).
+  app.set('trust proxy', true);
+
+  app.use(helmet());
+  const allowedOrigins = env.SOCKET_CORS_ORIGIN.split(',').map((o) => o.trim());
+  app.use(
+    cors({
+      origin: (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+        cb(new Error(`CORS: origin ${origin} not allowed`));
+      },
+      credentials: true,
+    }),
+  );
+
+  // Stripe webhook MUST receive raw body — mount BEFORE express.json()
+  const paymentsCtrl = container.resolve(PaymentsController);
+  const webhookHandler: RequestHandler = (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) => {
+    void paymentsCtrl.webhook(req, res, next);
+  };
+  app.post(
+    '/api/payments/webhook',
+    express.raw({ type: 'application/json' }),
+    webhookHandler,
+  );
+
+  // LiveKit webhook — raw body required for signature verification
+  app.post(
+    '/api/voice-agent/webhook/livekit',
+    express.raw({ type: '*/*' }),
+    (req: Request, _res: Response, next: NextFunction) => {
+      (req as Request & { rawBody?: string }).rawBody = (
+        req.body as Buffer
+      ).toString('utf8');
+      next();
+    },
+  );
+
+  // WhatsApp inbound webhooks — raw/urlencoded body required for signature verification,
+  // mounted BEFORE the global body parsers (same reason as the webhooks above).
+  const whatsappWebhookCtrl = container.resolve(WhatsAppWebhookController);
+  app.get('/api/whatsapp/webhook/meta', (req, res) => {
+    whatsappWebhookCtrl.verifyMeta(req, res);
+  });
+  app.post(
+    '/api/whatsapp/webhook/meta',
+    express.raw({ type: 'application/json' }),
+    (req: Request, res: Response, next: NextFunction) => {
+      void whatsappWebhookCtrl.receiveMeta(req, res, next);
+    },
+  );
+  app.post(
+    '/api/whatsapp/webhook/twilio',
+    express.urlencoded({ extended: false }),
+    (req: Request, res: Response, next: NextFunction) => {
+      void whatsappWebhookCtrl.receiveTwilio(req, res, next);
+    },
+  );
+
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true }));
+
+  app.use('/api/auth', authRouter);
+  app.use('/api/patients', patientsRouter);
+  app.use('/api/doctors', doctorsRouter);
+  app.use('/api/doctor', doctorPrivateRouter);
+  app.use('/api/bookings', bookingsRouter);
+  app.use('/api/payments', paymentsRouter);
+  app.use('/api/chat', chatRouter);
+  app.use('/api/prescriptions', prescriptionsRouter);
+  app.use('/api/medicine-orders', medicineOrdersRouter);
+  app.use('/api/ai', aiRouter);
+  app.use('/api/admin', adminRouter);
+  app.use('/api/platform', platformRouter);
+  app.use('/api/doctor/voice-agents', voiceAgentRouter);
+  app.use('/api/doctor/phone-numbers', phoneNumberRouter);
+  app.use('/api/voice-agent/webhook', voiceAgentWebhookRouter);
+  app.use('/api/shop', shopRouter);
+
+  app.use(errorMiddleware);
+
+  return app;
+}
