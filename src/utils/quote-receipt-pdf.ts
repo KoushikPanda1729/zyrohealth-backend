@@ -153,7 +153,7 @@ export async function buildQuoteReceiptPdf(
 
   const footerLine1 =
     'This is a price quote, not a final invoice — it may change if the shop revises its response.';
-  const footerLine2 = `Issued by ${data.tenantName} via the HealthPlus telemedicine platform.`;
+  const footerLine2 = `Issued by ${data.tenantName} via the ZyroHealth telemedicine platform.`;
   const footerLines1 = wrapText(footerLine1, regular, 6.5, CONTENT_WIDTH);
   const footerLines2 = wrapText(footerLine2, regular, 6, CONTENT_WIDTH);
 

@@ -41,7 +41,7 @@ import { MedicineShopCatalogItem } from '../../entities/MedicineShopCatalogItem'
 import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
 import { env } from '../../config/env';
 
-const MAIN_MENU_BODY = `Hi! 👋 Welcome to HealthPlus. How can I help?`;
+const MAIN_MENU_BODY = `Hi! 👋 Welcome to ZyroHealth. How can I help?`;
 const MAIN_MENU_OPTIONS: InteractiveOption[] = [
   {
     id: '1',
@@ -85,7 +85,7 @@ const INVALID_CHOICE_TEXT = `Please pick one of the options above (or type "canc
 const MAX_SLOT_OPTIONS = 6;
 const MAX_SLOT_SEARCH_DAYS = 14;
 
-// Appended to every "no HealthPlus account linked to this number" message
+// Appended to every "no ZyroHealth account linked to this number" message
 // so it's an actual tappable link rather than a dead end. The Play Store
 // line only appears once a real published app is configured
 // (PATIENT_PLAYSTORE_URL is blank by default).
@@ -595,7 +595,7 @@ export class WhatsAppBotService {
     if (!session.userId) {
       await this.reply(
         session,
-        `I couldn't find a HealthPlus account linked to this number, so I can't complete the booking.\n\n${registrationLinksText()}`,
+        `I couldn't find a ZyroHealth account linked to this number, so I can't complete the booking.\n\n${registrationLinksText()}`,
       );
       this.clearBookingDraft(session);
       session.conversationState = WhatsAppConversationState.MAIN_MENU;
@@ -665,7 +665,7 @@ export class WhatsAppBotService {
     if (!session.userId) {
       await this.reply(
         session,
-        `I couldn't find a HealthPlus account linked to this number, so I can't process this.\n\n${registrationLinksText()}`,
+        `I couldn't find a ZyroHealth account linked to this number, so I can't process this.\n\n${registrationLinksText()}`,
       );
       session.conversationState = WhatsAppConversationState.MAIN_MENU;
       return;
@@ -1190,7 +1190,7 @@ export class WhatsAppBotService {
 
       await this.reply(
         session,
-        `👋 Hi ${shop.name}! You're now linked to receive prescription quote requests from HealthPlus over WhatsApp. We'll message you here whenever a new request comes in.`,
+        `👋 Hi ${shop.name}! You're now linked to receive prescription quote requests from ZyroHealth over WhatsApp. We'll message you here whenever a new request comes in.`,
       );
       return;
     }
@@ -1268,7 +1268,7 @@ export class WhatsAppBotService {
 
   private async getStatusSummary(userId?: string): Promise<string> {
     if (!userId) {
-      return `I couldn't find a HealthPlus account linked to this number.\n\n${registrationLinksText()}`;
+      return `I couldn't find a ZyroHealth account linked to this number.\n\n${registrationLinksText()}`;
     }
 
     const [order] = await AppDataSource.getRepository(MedicineOrder).find({
@@ -1312,7 +1312,7 @@ export class WhatsAppBotService {
     const result = await this.ai.chat({
       messages: history,
       systemPrompt:
-        `You are the HealthPlus WhatsApp assistant. Answer briefly and helpfully about the ` +
+        `You are the ZyroHealth WhatsApp assistant. Answer briefly and helpfully about the ` +
         `telemedicine platform (doctor bookings, medicine orders, prescriptions) or general ` +
         `health questions. Keep replies short — this is WhatsApp, not a document. If you truly ` +
         `cannot help, say so plainly and suggest they reply "2" to reach a human.`,

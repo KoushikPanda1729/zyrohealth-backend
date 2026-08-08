@@ -18,7 +18,7 @@ export class TwilioAuthProvider implements IAuthProvider {
     const code = await generateAndStoreOtp(phone);
 
     await this.client.messages.create({
-      body: `${code} is your HealthPlus verification code. Valid for 10 minutes. Do not share this with anyone.`,
+      body: `${code} is your ZyroHealth verification code. Valid for 10 minutes. Do not share this with anyone.`,
       from: env.TWILIO_FROM_NUMBER,
       to: phone,
     });

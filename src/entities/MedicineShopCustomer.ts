@@ -3,7 +3,7 @@ import { BaseEntity } from './BaseEntity';
 
 // A shop's own record of a regular/known customer — separate from the
 // platform's patient accounts (this is a walk-in counter customer, who
-// may not have any HealthPlus account at all). `outstandingDueCents` is a
+// may not have any ZyroHealth account at all). `outstandingDueCents` is a
 // denormalized running total, kept in sync by billing.util.ts whenever a
 // credit sale or a settlement payment is recorded — see
 // MedicineShopCustomerLedgerEntry for the append-only audit trail behind it.

@@ -203,7 +203,7 @@ export class WhatsAppFlowEngineService {
           messages: [...history, { role: 'user', content: inputText }],
           systemPrompt:
             (node.data['systemPrompt'] as string | undefined) ??
-            'You are a helpful HealthPlus WhatsApp assistant. Keep replies short.',
+            'You are a helpful ZyroHealth WhatsApp assistant. Keep replies short.',
           patientContext: {
             bloodGroup: '',
             allergies: [],
@@ -695,7 +695,7 @@ export class WhatsAppFlowEngineService {
     if (!session.userId) {
       await this.send(
         session,
-        `I couldn't find a HealthPlus account linked to this number, so I can't complete the booking. Please sign up in the app first with this same phone number.`,
+        `I couldn't find a ZyroHealth account linked to this number, so I can't complete the booking. Please sign up in the app first with this same phone number.`,
       );
       return this.advanceTo(outgoing[0]);
     }
@@ -733,7 +733,7 @@ export class WhatsAppFlowEngineService {
     if (!session.userId) {
       await this.send(
         session,
-        `I couldn't find a HealthPlus account linked to this number.`,
+        `I couldn't find a ZyroHealth account linked to this number.`,
       );
       return this.advanceTo(outgoing[0]);
     }

@@ -118,7 +118,7 @@ export class WhatsAppNotificationService {
     return this.safeSend(tenantId, (provider) =>
       provider.sendText(
         phone,
-        `Good news! Your HealthPlus doctor profile has been approved. You're now live and can start accepting consultations.`,
+        `Good news! Your ZyroHealth doctor profile has been approved. You're now live and can start accepting consultations.`,
       ),
     );
   }
@@ -132,7 +132,7 @@ export class WhatsAppNotificationService {
     return this.safeSend(tenantId, (provider) =>
       provider.sendText(
         phone,
-        `Your HealthPlus doctor profile application was not approved. Reason: ${reason}. You can update your profile and resubmit.`,
+        `Your ZyroHealth doctor profile application was not approved. Reason: ${reason}. You can update your profile and resubmit.`,
       ),
     );
   }
@@ -151,7 +151,7 @@ export class WhatsAppNotificationService {
     return this.safeSend(tenantId, (provider) =>
       provider.sendText(
         phone,
-        `Your doctor has sent you a new prescription. Open the HealthPlus app to view the details and download the PDF.`,
+        `Your doctor has sent you a new prescription. Open the ZyroHealth app to view the details and download the PDF.`,
       ),
     );
   }

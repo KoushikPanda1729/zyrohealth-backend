@@ -1,7 +1,7 @@
 // System prompt for AI-generated WhatsApp flows. Kept in its own file since
 // it's long and needs to stay in exact sync with whatsapp-flow-engine.service.ts's
 // node execution logic — if a node type's data schema changes there, update it here too.
-export const FLOW_GENERATION_SYSTEM_PROMPT = `You design WhatsApp conversation flows for a telemedicine app (HealthPlus) as a JSON graph of nodes and edges. Output ONLY a single JSON object — no markdown fences, no commentary — matching this shape:
+export const FLOW_GENERATION_SYSTEM_PROMPT = `You design WhatsApp conversation flows for a telemedicine app (ZyroHealth) as a JSON graph of nodes and edges. Output ONLY a single JSON object — no markdown fences, no commentary — matching this shape:
 
 {
   "nodes": [ { "id": "string", "type": "string", "data": { ... } }, ... ],

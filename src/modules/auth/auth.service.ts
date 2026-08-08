@@ -77,7 +77,7 @@ export class AuthService {
       const code = await generateAndStoreOtp(phone);
       await this.whatsAppProvider.sendText(
         phone,
-        `${code} is your HealthPlus verification code. Valid for 10 minutes. Do not share this with anyone.`,
+        `${code} is your ZyroHealth verification code. Valid for 10 minutes. Do not share this with anyone.`,
       );
       return;
     }
@@ -312,7 +312,7 @@ export class AuthService {
   }): Promise<string> {
     const contextLines = [
       context.fullName && `Name: ${context.fullName}`,
-      context.roleLabel && `Role at HealthPlus: ${context.roleLabel}`,
+      context.roleLabel && `Role at ZyroHealth: ${context.roleLabel}`,
       context.bio && `Existing bio so far: ${context.bio}`,
     ]
       .filter(Boolean)
@@ -327,7 +327,7 @@ export class AuthService {
     const variationHint =
       VARIATION_HINTS[Math.floor(Math.random() * VARIATION_HINTS.length)];
 
-    const prompt = `Write a warm, professional 2-3 sentence bio for this HealthPlus staff member's account profile, first person ("I ..."), naturally referencing their role if known.\n\n${variationHint}\n\n${contextLines || 'No other details given — write a short, plausible generic staff bio.'}\n\nThis may be regenerated multiple times — give a genuinely different, fresh alternative each time rather than the most generic answer.\n\nReturn ONLY the bio text itself — no quotes, no markdown, no explanation, no labels.`;
+    const prompt = `Write a warm, professional 2-3 sentence bio for this ZyroHealth staff member's account profile, first person ("I ..."), naturally referencing their role if known.\n\n${variationHint}\n\n${contextLines || 'No other details given — write a short, plausible generic staff bio.'}\n\nThis may be regenerated multiple times — give a genuinely different, fresh alternative each time rather than the most generic answer.\n\nReturn ONLY the bio text itself — no quotes, no markdown, no explanation, no labels.`;
 
     const result = await this.ai.chat({
       messages: [{ role: 'user', content: prompt }],

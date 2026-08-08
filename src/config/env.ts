@@ -65,7 +65,7 @@ const envSchema = z.object({
   // is shown to whoever creates the invite to copy and share manually.
   ADMIN_PANEL_URL: z.string().default('http://localhost:3000'),
   // Patient-facing web app + Play Store listing — sent to a WhatsApp sender
-  // who has no HealthPlus account yet, so "please sign up first" is an
+  // who has no ZyroHealth account yet, so "please sign up first" is an
   // actual tappable link instead of a dead end. PATIENT_PLAYSTORE_URL is
   // deliberately blank by default (no real published app to link to yet)
   // and is only mentioned once a real one is configured.

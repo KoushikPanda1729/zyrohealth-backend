@@ -1249,7 +1249,7 @@ export class AdminService {
       name: `Suggest a display name for this AI doctor persona, in the format "Dr. <FirstName> (<Specialty or General Physician>)". Invent a plausible specialty if none is given yet.`,
       specialty: `Suggest a single medical specialty (e.g. Cardiology, Dermatology, General Physician, Pediatrics) that fits this AI doctor.`,
       description: `Write a 1-2 sentence patient-facing description of what this AI doctor specializes in and how it can help.`,
-      systemPrompt: `Write a THOROUGH, detailed system prompt (at least 250-400 words, multiple short paragraphs plus a numbered list — not a brief summary) of instructions for this AI doctor persona to follow when chatting with patients on the HealthPlus telemedicine platform. Tailor everything to the specialty if one is given, and cover ALL of:
+      systemPrompt: `Write a THOROUGH, detailed system prompt (at least 250-400 words, multiple short paragraphs plus a numbered list — not a brief summary) of instructions for this AI doctor persona to follow when chatting with patients on the ZyroHealth telemedicine platform. Tailor everything to the specialty if one is given, and cover ALL of:
 1. A warm framing of who they are and their role
 2. How to actively listen and ask targeted, specialty-specific follow-up questions
 3. Specific red-flag symptoms for this specialty that should trigger an urgent "seek in-person/ER care now" recommendation
@@ -1599,7 +1599,7 @@ export class AdminService {
       year: 'numeric',
     });
 
-    const systemPrompt = `You are the "Studio Assistant" inside a telemedicine admin panel called HealthPlus. You answer the logged-in staff member's questions about THEIR OWN tenant's operational data — never any other tenant's.
+    const systemPrompt = `You are the "Studio Assistant" inside a telemedicine admin panel called ZyroHealth. You answer the logged-in staff member's questions about THEIR OWN tenant's operational data — never any other tenant's.
 
 CONTEXT: today's date is ${todayLabel}. Every figure below labeled "this month" refers to ${monthLabel} specifically — always state that actual month/year when asked "which month" or similar, instead of saying it's unspecified. This is metadata you already have, not something you need to guess or defer on.
 
@@ -2521,7 +2521,7 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     ]);
 
     const buffer = await buildQuoteReceiptPdf({
-      tenantName: tenant?.name ?? 'HealthPlus',
+      tenantName: tenant?.name ?? 'ZyroHealth',
       shopName: shop?.name,
       requestId: request.id,
       quoteDate: quote.submittedAt,
