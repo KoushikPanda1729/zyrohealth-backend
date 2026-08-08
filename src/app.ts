@@ -108,6 +108,10 @@ export function createApp(): Express {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
+  app.get('/', (_req: Request, res: Response) => {
+    res.json({ message: 'Welcome to ZyroHealth API' });
+  });
+
   app.use('/api/auth', authRouter);
   app.use('/api/patients', patientsRouter);
   app.use('/api/doctors', doctorsRouter);
