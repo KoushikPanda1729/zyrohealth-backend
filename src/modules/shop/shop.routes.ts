@@ -5,6 +5,7 @@ import { verifyToken } from '../../middleware/verifyToken.middleware';
 import { attachRole } from '../../middleware/attachRole.middleware';
 import { requireRole } from '../../middleware/requireRole.middleware';
 import { requireShopOwner } from '../../middleware/requireShopOwner.middleware';
+import { requirePermission } from '../../middleware/requirePermission.middleware';
 import {
   uploadMiddleware,
   catalogUploadMiddleware,
@@ -14,12 +15,14 @@ const router = Router();
 const ctrl = container.resolve(ShopController);
 
 router.use(verifyToken, attachRole, requireRole('shop'));
-// A cashier (see requireShopOwner.middleware.ts) can bill at the counter,
-// view the catalog/customers/sales, and record customer payments — but
-// not touch catalog data, suppliers/purchase orders, or financial
-// reports, and can't invite more staff. Applied per-route below rather
-// than as a blanket gate, since most of this router (billing, viewing)
-// should stay open to a cashier.
+// The owner always passes every requirePermission check below (attachRole
+// grants them permissions: ['*'], same as super_admin) — everyone else's
+// access depends on their assigned MedicineShopRole. Billing/viewing/
+// customer routes stay ungated (open to any shop staff) to match the
+// original cashier-tier behavior; only what used to be hard owner-only
+// gates are now delegable via a custom role. Staff/role administration
+// itself stays requireShopOwner — a delegated permission should never be
+// able to grant itself (or anyone else) more permissions.
 
 router.get('/me', (req, res, next) => {
   void ctrl.getMyProfile(req, res, next);
@@ -30,7 +33,7 @@ router.get('/me', (req, res, next) => {
 router.get('/catalog/bulk-upload/template', ctrl.downloadCatalogTemplate);
 router.post(
   '/catalog/bulk-upload',
-  requireShopOwner,
+  requirePermission('shop_catalog.manage'),
   catalogUploadMiddleware.single('file'),
   (req, res, next) => {
     void ctrl.bulkUploadCatalog(req, res, next);
@@ -38,7 +41,7 @@ router.post(
 );
 router.post(
   '/catalog/scan',
-  requireShopOwner,
+  requirePermission('shop_catalog.manage'),
   uploadMiddleware.array('files', 4),
   (req, res, next) => {
     void ctrl.scanCatalogImage(req, res, next);
@@ -57,13 +60,13 @@ router.get('/catalog/stock-history/export', (req, res, next) => {
 router.get('/catalog', (req, res, next) => {
   void ctrl.listCatalog(req, res, next);
 });
-router.post('/catalog', requireShopOwner, (req, res, next) => {
+router.post('/catalog', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.createCatalogItem(req, res, next);
 });
-router.patch('/catalog/:itemId', requireShopOwner, (req, res, next) => {
+router.patch('/catalog/:itemId', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.updateCatalogItem(req, res, next);
 });
-router.delete('/catalog/:itemId', requireShopOwner, (req, res, next) => {
+router.delete('/catalog/:itemId', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.deleteCatalogItem(req, res, next);
 });
 
@@ -71,13 +74,13 @@ router.delete('/catalog/:itemId', requireShopOwner, (req, res, next) => {
 router.get('/suppliers', (req, res, next) => {
   void ctrl.listSuppliers(req, res, next);
 });
-router.post('/suppliers', requireShopOwner, (req, res, next) => {
+router.post('/suppliers', requirePermission('shop_suppliers.manage'), (req, res, next) => {
   void ctrl.createSupplier(req, res, next);
 });
-router.patch('/suppliers/:supplierId', requireShopOwner, (req, res, next) => {
+router.patch('/suppliers/:supplierId', requirePermission('shop_suppliers.manage'), (req, res, next) => {
   void ctrl.updateSupplier(req, res, next);
 });
-router.delete('/suppliers/:supplierId', requireShopOwner, (req, res, next) => {
+router.delete('/suppliers/:supplierId', requirePermission('shop_suppliers.manage'), (req, res, next) => {
   void ctrl.deleteSupplier(req, res, next);
 });
 
@@ -85,25 +88,25 @@ router.delete('/suppliers/:supplierId', requireShopOwner, (req, res, next) => {
 router.get('/purchase-orders', (req, res, next) => {
   void ctrl.listPurchaseOrders(req, res, next);
 });
-router.post('/purchase-orders', requireShopOwner, (req, res, next) => {
+router.post('/purchase-orders', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.createPurchaseOrder(req, res, next);
 });
-router.post('/purchase-orders/auto-create-from-low-stock', requireShopOwner, (req, res, next) => {
+router.post('/purchase-orders/auto-create-from-low-stock', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.createPurchaseOrdersFromLowStock(req, res, next);
 });
-router.patch('/purchase-orders/:poId', requireShopOwner, (req, res, next) => {
+router.patch('/purchase-orders/:poId', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.updatePurchaseOrder(req, res, next);
 });
-router.patch('/purchase-orders/:poId/send', requireShopOwner, (req, res, next) => {
+router.patch('/purchase-orders/:poId/send', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.markPurchaseOrderSent(req, res, next);
 });
-router.patch('/purchase-orders/:poId/receive', requireShopOwner, (req, res, next) => {
+router.patch('/purchase-orders/:poId/receive', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.markPurchaseOrderReceived(req, res, next);
 });
-router.patch('/purchase-orders/:poId/cancel', requireShopOwner, (req, res, next) => {
+router.patch('/purchase-orders/:poId/cancel', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.cancelPurchaseOrder(req, res, next);
 });
-router.delete('/purchase-orders/:poId', requireShopOwner, (req, res, next) => {
+router.delete('/purchase-orders/:poId', requirePermission('shop_purchase_orders.manage'), (req, res, next) => {
   void ctrl.deletePurchaseOrder(req, res, next);
 });
 
@@ -111,13 +114,13 @@ router.delete('/purchase-orders/:poId', requireShopOwner, (req, res, next) => {
 router.get('/catalog/:itemId/batches', (req, res, next) => {
   void ctrl.listBatches(req, res, next);
 });
-router.post('/catalog/:itemId/batches', requireShopOwner, (req, res, next) => {
+router.post('/catalog/:itemId/batches', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.addBatch(req, res, next);
 });
-router.delete('/catalog/batches/:batchId', requireShopOwner, (req, res, next) => {
+router.delete('/catalog/batches/:batchId', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.deleteBatch(req, res, next);
 });
-router.post('/catalog/:itemId/adjust-stock', requireShopOwner, (req, res, next) => {
+router.post('/catalog/:itemId/adjust-stock', requirePermission('shop_catalog.manage'), (req, res, next) => {
   void ctrl.adjustStock(req, res, next);
 });
 router.get('/catalog/:itemId/supplier-comparison', (req, res, next) => {
@@ -138,10 +141,10 @@ router.get('/sales/:saleId', (req, res, next) => {
   void ctrl.getSale(req, res, next);
 });
 
-router.get('/reports/daily-reconciliation', requireShopOwner, (req, res, next) => {
+router.get('/reports/daily-reconciliation', requirePermission('shop_reports.view'), (req, res, next) => {
   void ctrl.getDailyReconciliation(req, res, next);
 });
-router.get('/reports/analytics', requireShopOwner, (req, res, next) => {
+router.get('/reports/analytics', requirePermission('shop_reports.view'), (req, res, next) => {
   void ctrl.getSalesAnalytics(req, res, next);
 });
 
@@ -166,10 +169,10 @@ router.post('/customers/:customerId/payments', (req, res, next) => {
 router.get('/supplier-prices', (req, res, next) => {
   void ctrl.listSupplierPrices(req, res, next);
 });
-router.put('/supplier-prices', requireShopOwner, (req, res, next) => {
+router.put('/supplier-prices', requirePermission('shop_supplier_prices.manage'), (req, res, next) => {
   void ctrl.setSupplierPrice(req, res, next);
 });
-router.delete('/supplier-prices/:priceId', requireShopOwner, (req, res, next) => {
+router.delete('/supplier-prices/:priceId', requirePermission('shop_supplier_prices.manage'), (req, res, next) => {
   void ctrl.deleteSupplierPrice(req, res, next);
 });
 
@@ -178,7 +181,11 @@ router.get('/restock-suggestions', (req, res, next) => {
   void ctrl.getRestockSuggestions(req, res, next);
 });
 
-// ── Staff (owner/cashier sub-roles) — owner-only in every direction ────
+// ── Staff — owner-only in every direction. Custom-role permissions are
+// delegable to non-owner staff for the modules above, but staff/role
+// ADMINISTRATION itself never is — otherwise a delegated shop_staff.manage
+// permission could grant its holder (or anyone else) more power than the
+// owner intended. ───────────────────────────────────────────────────────
 router.get('/staff', requireShopOwner, (req, res, next) => {
   void ctrl.listShopStaff(req, res, next);
 });
@@ -187,6 +194,100 @@ router.post('/staff', requireShopOwner, (req, res, next) => {
 });
 router.patch('/staff/:staffId/toggle-active', requireShopOwner, (req, res, next) => {
   void ctrl.toggleShopStaffActive(req, res, next);
+});
+router.patch('/staff/:staffId/role', requireShopOwner, (req, res, next) => {
+  void ctrl.assignShopStaffRole(req, res, next);
+});
+
+// ── Custom roles & module-wise permissions — owner-only (see above) ────
+router.get('/permissions', requireShopOwner, (req, res, next) => {
+  void ctrl.listAssignableShopPermissions(req, res, next);
+});
+router.get('/roles', requireShopOwner, (req, res, next) => {
+  void ctrl.listShopRoles(req, res, next);
+});
+router.get('/roles/:roleId', requireShopOwner, (req, res, next) => {
+  void ctrl.getShopRole(req, res, next);
+});
+router.post('/roles', requireShopOwner, (req, res, next) => {
+  void ctrl.createShopRole(req, res, next);
+});
+router.patch('/roles/:roleId', requireShopOwner, (req, res, next) => {
+  void ctrl.updateShopRole(req, res, next);
+});
+router.delete('/roles/:roleId', requireShopOwner, (req, res, next) => {
+  void ctrl.deleteShopRole(req, res, next);
+});
+
+// ── Attendance — self-service for everyone, managing others requires
+// shop_attendance.manage (owner always has it) ─────────────────────────
+router.post('/attendance/check-in', (req, res, next) => {
+  void ctrl.selfCheckIn(req, res, next);
+});
+router.post('/attendance/check-out', (req, res, next) => {
+  void ctrl.selfCheckOut(req, res, next);
+});
+router.get('/attendance/me/today', (req, res, next) => {
+  void ctrl.getMyTodayAttendance(req, res, next);
+});
+router.get('/attendance', requirePermission('shop_attendance.manage'), (req, res, next) => {
+  void ctrl.listAttendance(req, res, next);
+});
+router.put('/attendance/:staffId', requirePermission('shop_attendance.manage'), (req, res, next) => {
+  void ctrl.markAttendance(req, res, next);
+});
+
+// ── Leave — self-service request/balance for everyone, approving/
+// direct-marking others requires shop_leave.manage ─────────────────────
+router.post('/leave/requests', (req, res, next) => {
+  void ctrl.requestLeave(req, res, next);
+});
+router.get('/leave/me/balance', (req, res, next) => {
+  void ctrl.getMyLeaveBalance(req, res, next);
+});
+router.get('/leave/requests', requirePermission('shop_leave.manage'), (req, res, next) => {
+  void ctrl.listLeaveRequests(req, res, next);
+});
+router.patch('/leave/requests/:requestId/decide', requirePermission('shop_leave.manage'), (req, res, next) => {
+  void ctrl.decideLeaveRequest(req, res, next);
+});
+router.post('/leave/:staffId/mark', requirePermission('shop_leave.manage'), (req, res, next) => {
+  void ctrl.ownerDirectMarkLeave(req, res, next);
+});
+router.get('/leave/:staffId/balance', requirePermission('shop_leave.manage'), (req, res, next) => {
+  void ctrl.getStaffLeaveBalance(req, res, next);
+});
+
+// ── Payroll — every shop user can always see their OWN payroll records
+// and download their OWN payslip (records/payslip.pdf routes below stay
+// ungated and self-filter in the controller); shop_payroll.view/manage
+// only gates seeing or changing OTHER staff members' salary/payroll
+// data. ──────────────────────────────────────────────────────────────────
+router.get('/payroll/staff-profiles', requirePermission('shop_payroll.view'), (req, res, next) => {
+  void ctrl.listStaffProfiles(req, res, next);
+});
+router.put('/payroll/staff-profiles/:staffId', requirePermission('shop_payroll.manage'), (req, res, next) => {
+  void ctrl.upsertStaffProfile(req, res, next);
+});
+// Open to any shop staff — listPayrollRecords/downloadPayslip enforce
+// "your own records, or shop_payroll.view for everyone else's" internally.
+router.get('/payroll/records', (req, res, next) => {
+  void ctrl.listPayrollRecords(req, res, next);
+});
+router.post('/payroll/:staffId/generate', requirePermission('shop_payroll.manage'), (req, res, next) => {
+  void ctrl.generatePayrollRecord(req, res, next);
+});
+router.post('/payroll/records/:recordId/adjustments', requirePermission('shop_payroll.manage'), (req, res, next) => {
+  void ctrl.addPayrollAdjustment(req, res, next);
+});
+router.patch('/payroll/records/:recordId/finalize', requirePermission('shop_payroll.manage'), (req, res, next) => {
+  void ctrl.finalizePayrollRecord(req, res, next);
+});
+router.patch('/payroll/records/:recordId/mark-paid', requirePermission('shop_payroll.manage'), (req, res, next) => {
+  void ctrl.markPayrollPaid(req, res, next);
+});
+router.get('/payroll/records/:recordId/payslip.pdf', (req, res, next) => {
+  void ctrl.downloadPayslip(req, res, next);
 });
 
 router.get('/quote-requests', (req, res, next) => {

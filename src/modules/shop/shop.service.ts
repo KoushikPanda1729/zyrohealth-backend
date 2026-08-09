@@ -105,6 +105,48 @@ import {
 } from '../medicine-shops/supplier-price.util';
 import { MedicineShopSupplierPrice } from '../../entities/MedicineShopSupplierPrice';
 import { computeRestockSuggestions, RestockSuggestion } from '../medicine-shops/demand-prediction.util';
+import { Permission } from '../../entities/Permission';
+import { MedicineShopRole } from '../../entities/MedicineShopRole';
+import {
+  listAssignableShopPermissions,
+  listShopRoles,
+  getShopRole,
+  createShopRole,
+  updateShopRole,
+  deleteShopRole,
+  assignShopStaffRole,
+} from '../medicine-shops/shop-role.util';
+import { MedicineShopAttendance, AttendanceStatus } from '../../entities/MedicineShopAttendance';
+import {
+  selfCheckIn,
+  selfCheckOut,
+  getMyTodayAttendance,
+  markAttendance,
+  listAttendance,
+} from '../medicine-shops/attendance.util';
+import { MedicineShopLeaveRequest, LeaveStatus } from '../../entities/MedicineShopLeaveRequest';
+import {
+  requestLeave,
+  ownerDirectMarkLeave,
+  decideLeaveRequest,
+  listLeaveRequests,
+  getLeaveBalance,
+  LeaveBalance,
+} from '../medicine-shops/leave.util';
+import { MedicineShopStaffProfile } from '../../entities/MedicineShopStaffProfile';
+import { MedicineShopPayrollRecord, PayrollAdjustment } from '../../entities/MedicineShopPayrollRecord';
+import {
+  getStaffProfile,
+  listStaffProfiles,
+  upsertStaffProfile,
+  generatePayrollRecord,
+  addPayrollAdjustment,
+  finalizePayrollRecord,
+  markPayrollPaid,
+  listPayrollRecords,
+  getPayrollRecord,
+} from '../medicine-shops/payroll.util';
+import { buildPayslipPdf, PayslipLine } from '../../utils/payslip-pdf';
 
 const S3_URL_PATTERN = /\.s3\.[^.]+\.amazonaws\.com\//;
 
@@ -599,7 +641,7 @@ export class ShopService {
 
   async inviteShopStaff(
     shopId: string,
-    data: { fullName: string; email: string; password?: string },
+    data: { fullName: string; email: string; password?: string; shopRoleId?: string },
   ): Promise<{ user: User; inviteLink?: string }> {
     const shop = await this.getShopOrThrow(shopId);
     return inviteShopStaff(this.authService, shopId, shop.tenantId, data);
@@ -607,5 +649,223 @@ export class ShopService {
 
   async toggleShopStaffActive(shopId: string, staffId: string): Promise<User> {
     return toggleShopStaffActive(shopId, staffId);
+  }
+
+  // ── Custom shop roles & permissions ─────────────────────────────────
+  async listAssignableShopPermissions(): Promise<Permission[]> {
+    return listAssignableShopPermissions();
+  }
+
+  async listShopRoles(shopId: string): Promise<MedicineShopRole[]> {
+    return listShopRoles(shopId);
+  }
+
+  async getShopRole(
+    shopId: string,
+    id: string,
+  ): Promise<MedicineShopRole & { permissionKeys: string[] }> {
+    return getShopRole(shopId, id);
+  }
+
+  async createShopRole(
+    shopId: string,
+    name: string,
+    description: string | undefined,
+    permissionKeys: string[],
+  ): Promise<MedicineShopRole> {
+    return createShopRole(shopId, name, description, permissionKeys);
+  }
+
+  async updateShopRole(
+    shopId: string,
+    id: string,
+    data: { name?: string; description?: string; permissionKeys?: string[] },
+  ): Promise<MedicineShopRole> {
+    return updateShopRole(shopId, id, data);
+  }
+
+  async deleteShopRole(shopId: string, id: string): Promise<void> {
+    return deleteShopRole(shopId, id);
+  }
+
+  async assignShopStaffRole(shopId: string, staffId: string, roleId: string): Promise<User> {
+    return assignShopStaffRole(shopId, staffId, roleId);
+  }
+
+  // ── Attendance ───────────────────────────────────────────────────────
+  async selfCheckIn(shopId: string, staffUserId: string): Promise<MedicineShopAttendance> {
+    return selfCheckIn(shopId, staffUserId);
+  }
+
+  async selfCheckOut(shopId: string, staffUserId: string): Promise<MedicineShopAttendance> {
+    return selfCheckOut(shopId, staffUserId);
+  }
+
+  async getMyTodayAttendance(staffUserId: string): Promise<MedicineShopAttendance | null> {
+    return getMyTodayAttendance(staffUserId);
+  }
+
+  async markAttendance(
+    shopId: string,
+    staffUserId: string,
+    date: string,
+    status: AttendanceStatus,
+    markedByUserId: string,
+    notes?: string,
+  ): Promise<MedicineShopAttendance> {
+    return markAttendance(shopId, staffUserId, date, status, markedByUserId, notes);
+  }
+
+  async listAttendance(
+    shopId: string,
+    filters: { staffUserId?: string; from?: string; to?: string },
+  ): Promise<MedicineShopAttendance[]> {
+    return listAttendance(shopId, filters);
+  }
+
+  // ── Leave ────────────────────────────────────────────────────────────
+  async requestLeave(
+    shopId: string,
+    staffUserId: string,
+    startDate: string,
+    endDate: string,
+    reason?: string,
+  ): Promise<MedicineShopLeaveRequest> {
+    return requestLeave(shopId, staffUserId, startDate, endDate, reason);
+  }
+
+  async ownerDirectMarkLeave(
+    shopId: string,
+    staffUserId: string,
+    startDate: string,
+    endDate: string,
+    reason: string | undefined,
+    markedByUserId: string,
+  ): Promise<MedicineShopLeaveRequest> {
+    return ownerDirectMarkLeave(shopId, staffUserId, startDate, endDate, reason, markedByUserId);
+  }
+
+  async decideLeaveRequest(
+    shopId: string,
+    requestId: string,
+    approve: boolean,
+    decidedByUserId: string,
+    decisionNote?: string,
+  ): Promise<MedicineShopLeaveRequest> {
+    return decideLeaveRequest(shopId, requestId, approve, decidedByUserId, decisionNote);
+  }
+
+  async listLeaveRequests(
+    shopId: string,
+    filters: { staffUserId?: string; status?: LeaveStatus },
+  ): Promise<MedicineShopLeaveRequest[]> {
+    return listLeaveRequests(shopId, filters);
+  }
+
+  async getLeaveBalance(shopId: string, staffUserId: string): Promise<LeaveBalance> {
+    return getLeaveBalance(shopId, staffUserId);
+  }
+
+  // ── Payroll ──────────────────────────────────────────────────────────
+  async getStaffProfile(shopId: string, userId: string): Promise<MedicineShopStaffProfile | null> {
+    return getStaffProfile(shopId, userId);
+  }
+
+  async listStaffProfiles(shopId: string): Promise<MedicineShopStaffProfile[]> {
+    return listStaffProfiles(shopId);
+  }
+
+  async upsertStaffProfile(
+    shopId: string,
+    userId: string,
+    data: Parameters<typeof upsertStaffProfile>[2],
+  ): Promise<MedicineShopStaffProfile> {
+    return upsertStaffProfile(shopId, userId, data);
+  }
+
+  async generatePayrollRecord(
+    shopId: string,
+    staffUserId: string,
+    month: string,
+  ): Promise<MedicineShopPayrollRecord> {
+    return generatePayrollRecord(shopId, staffUserId, month);
+  }
+
+  async addPayrollAdjustment(
+    shopId: string,
+    recordId: string,
+    adjustment: PayrollAdjustment,
+  ): Promise<MedicineShopPayrollRecord> {
+    return addPayrollAdjustment(shopId, recordId, adjustment);
+  }
+
+  async finalizePayrollRecord(shopId: string, recordId: string): Promise<MedicineShopPayrollRecord> {
+    return finalizePayrollRecord(shopId, recordId);
+  }
+
+  async markPayrollPaid(
+    shopId: string,
+    recordId: string,
+    paidVia: string,
+    notes?: string,
+  ): Promise<MedicineShopPayrollRecord> {
+    return markPayrollPaid(shopId, recordId, paidVia, notes);
+  }
+
+  async listPayrollRecords(
+    shopId: string,
+    filters: { staffUserId?: string; month?: string },
+  ): Promise<MedicineShopPayrollRecord[]> {
+    return listPayrollRecords(shopId, filters);
+  }
+
+  async getPayrollRecord(shopId: string, recordId: string): Promise<MedicineShopPayrollRecord> {
+    return getPayrollRecord(shopId, recordId);
+  }
+
+  async downloadPayslip(
+    shopId: string,
+    recordId: string,
+  ): Promise<{ buffer: Buffer; filename: string }> {
+    const record = await getPayrollRecord(shopId, recordId);
+    const shop = await this.getShopOrThrow(shopId);
+    const employee = await AppDataSource.getRepository(User).findOne({
+      where: { id: record.staffUserId },
+    });
+    const profile = await getStaffProfile(shopId, record.staffUserId);
+
+    const earnings: PayslipLine[] = record.adjustments
+      .filter((a) => a.type === 'bonus')
+      .map((a) => ({ label: a.label, amountCents: a.amountCents }));
+
+    const deductions: PayslipLine[] = [
+      ...record.adjustments
+        .filter((a) => a.type === 'deduction')
+        .map((a) => ({ label: a.label, amountCents: a.amountCents })),
+      ...(record.pfDeductionCents > 0 ? [{ label: 'PF (employee share)', amountCents: record.pfDeductionCents }] : []),
+      ...(record.esiDeductionCents > 0 ? [{ label: 'ESI (employee share)', amountCents: record.esiDeductionCents }] : []),
+      ...(record.professionalTaxCents > 0 ? [{ label: 'Professional Tax', amountCents: record.professionalTaxCents }] : []),
+      ...(record.tdsCents > 0 ? [{ label: 'TDS', amountCents: record.tdsCents }] : []),
+    ];
+
+    const buffer = await buildPayslipPdf({
+      shopName: shop.name,
+      employeeName: employee?.fullName || employee?.email || 'Staff',
+      employeeCode: profile?.employeeCode,
+      month: record.month,
+      workingDaysInMonth: record.workingDaysInMonth,
+      presentDays: record.presentDays,
+      halfDays: record.halfDays,
+      paidLeaveDays: record.paidLeaveDays,
+      unpaidLeaveDays: record.unpaidLeaveDays,
+      absentDays: record.absentDays,
+      baseSalaryCents: record.baseSalaryCents,
+      proRatedGrossCents: record.proRatedGrossCents,
+      earnings,
+      deductions,
+      netPayCents: record.netPayCents,
+      status: record.status,
+    });
+    return { buffer, filename: `payslip-${record.month}-${record.staffUserId.slice(0, 8)}.pdf` };
   }
 }

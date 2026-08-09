@@ -9,10 +9,35 @@ import { extractSupplierFieldsFromBody } from '../medicine-shops/supplier.util';
 import { PurchaseOrderLineItem } from '../../entities/MedicineShopPurchaseOrder';
 import { SaleLineItemInput } from '../medicine-shops/billing.util';
 import { SalePaymentMode, ControlledDrugInfo } from '../../entities/MedicineShopSale';
+import { AttendanceStatus } from '../../entities/MedicineShopAttendance';
+import { LeaveStatus } from '../../entities/MedicineShopLeaveRequest';
+import { PayrollMode } from '../../entities/MedicineShopStaffProfile';
+
+interface StaffProfileUpdateBody {
+  employeeCode?: string;
+  joinedAt?: string;
+  monthlyBaseSalaryCents?: number;
+  annualLeaveQuota?: number;
+  payrollMode?: PayrollMode;
+  pfEnabled?: boolean;
+  pfEmployeePercent?: number;
+  esiEnabled?: boolean;
+  esiEmployeePercent?: number;
+  professionalTaxEnabled?: boolean;
+  professionalTaxCents?: number;
+  tdsEnabled?: boolean;
+  tdsPercent?: number;
+  isActive?: boolean;
+}
 
 function shopOf(req: Request): string {
   if (!req.user?.shopId) throw AppError.forbidden('No shop context');
   return req.user.shopId;
+}
+
+function userIdOf(req: Request): string {
+  if (!req.user?.id) throw AppError.unauthorized();
+  return req.user.id;
 }
 
 @injectable()
@@ -101,7 +126,11 @@ export class ShopController {
   ): Promise<void> => {
     try {
       const profile = await this.shopService.getMyProfile(shopOf(req));
-      res.status(200).json(success(profile));
+      res.status(200).json(success({
+        ...profile,
+        isOwner: req.user?.shopStaffRole === 'owner',
+        permissions: req.user?.permissions ?? [],
+      }));
     } catch (err) {
       next(err);
     }
@@ -726,13 +755,15 @@ export class ShopController {
 
   inviteShopStaff = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { fullName, email, password } = req.body as { fullName: string; email: string; password?: string };
+      const { fullName, email, password, shopRoleId } = req.body as {
+        fullName: string; email: string; password?: string; shopRoleId?: string;
+      };
       if (!fullName) throw AppError.badRequest('fullName is required');
       if (!email) throw AppError.badRequest('email is required');
       if (password !== undefined && password.length < 8) {
         throw AppError.badRequest('Password must be at least 8 characters');
       }
-      const result = await this.shopService.inviteShopStaff(shopOf(req), { fullName, email, password });
+      const result = await this.shopService.inviteShopStaff(shopOf(req), { fullName, email, password, shopRoleId });
       res.status(201).json(success(result, 'Staff account created'));
     } catch (err) {
       next(err);
@@ -744,6 +775,307 @@ export class ShopController {
       const { staffId } = req.params as { staffId: string };
       const staff = await this.shopService.toggleShopStaffActive(shopOf(req), staffId);
       res.status(200).json(success(staff, staff.isActive ? 'Staff account unbanned' : 'Staff account banned'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Custom shop roles & permissions ─────────────────────────────────
+  listAssignableShopPermissions = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const perms = await this.shopService.listAssignableShopPermissions();
+      res.status(200).json(success(perms));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listShopRoles = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const roles = await this.shopService.listShopRoles(shopOf(req));
+      res.status(200).json(success(roles));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getShopRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { roleId } = req.params as { roleId: string };
+      const role = await this.shopService.getShopRole(shopOf(req), roleId);
+      res.status(200).json(success(role));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createShopRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { name, description, permissionKeys } = req.body as {
+        name: string; description?: string; permissionKeys?: string[];
+      };
+      if (!name) throw AppError.badRequest('name is required');
+      const role = await this.shopService.createShopRole(
+        shopOf(req), name, description, Array.isArray(permissionKeys) ? permissionKeys : [],
+      );
+      res.status(201).json(success(role, 'Role created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateShopRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { roleId } = req.params as { roleId: string };
+      const { name, description, permissionKeys } = req.body as {
+        name?: string; description?: string; permissionKeys?: string[];
+      };
+      const role = await this.shopService.updateShopRole(shopOf(req), roleId, { name, description, permissionKeys });
+      res.status(200).json(success(role, 'Role updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deleteShopRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { roleId } = req.params as { roleId: string };
+      await this.shopService.deleteShopRole(shopOf(req), roleId);
+      res.status(200).json(success(null, 'Role deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  assignShopStaffRole = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const { roleId } = req.body as { roleId: string };
+      if (!roleId) throw AppError.badRequest('roleId is required');
+      const staff = await this.shopService.assignShopStaffRole(shopOf(req), staffId, roleId);
+      res.status(200).json(success(staff, 'Role assigned'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Attendance ───────────────────────────────────────────────────────
+  selfCheckIn = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const row = await this.shopService.selfCheckIn(shopOf(req), userIdOf(req));
+      res.status(200).json(success(row, 'Checked in'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  selfCheckOut = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const row = await this.shopService.selfCheckOut(shopOf(req), userIdOf(req));
+      res.status(200).json(success(row, 'Checked out'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getMyTodayAttendance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const row = await this.shopService.getMyTodayAttendance(userIdOf(req));
+      res.status(200).json(success(row));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  markAttendance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const { date, status, notes } = req.body as { date: string; status: AttendanceStatus; notes?: string };
+      if (!date) throw AppError.badRequest('date is required');
+      if (!status) throw AppError.badRequest('status is required');
+      const row = await this.shopService.markAttendance(shopOf(req), staffId, date, status, userIdOf(req), notes);
+      res.status(200).json(success(row, 'Attendance updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listAttendance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId, from, to } = req.query as { staffId?: string; from?: string; to?: string };
+      const rows = await this.shopService.listAttendance(shopOf(req), { staffUserId: staffId, from, to });
+      res.status(200).json(success(rows));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Leave ────────────────────────────────────────────────────────────
+  requestLeave = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { startDate, endDate, reason } = req.body as { startDate: string; endDate: string; reason?: string };
+      if (!startDate || !endDate) throw AppError.badRequest('startDate and endDate are required');
+      const request = await this.shopService.requestLeave(shopOf(req), userIdOf(req), startDate, endDate, reason);
+      res.status(201).json(success(request, 'Leave requested'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  ownerDirectMarkLeave = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const { startDate, endDate, reason } = req.body as { startDate: string; endDate: string; reason?: string };
+      if (!startDate || !endDate) throw AppError.badRequest('startDate and endDate are required');
+      const request = await this.shopService.ownerDirectMarkLeave(
+        shopOf(req), staffId, startDate, endDate, reason, userIdOf(req),
+      );
+      res.status(201).json(success(request, 'Leave marked'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  decideLeaveRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { requestId } = req.params as { requestId: string };
+      const { approve, decisionNote } = req.body as { approve: boolean; decisionNote?: string };
+      const request = await this.shopService.decideLeaveRequest(
+        shopOf(req), requestId, !!approve, userIdOf(req), decisionNote,
+      );
+      res.status(200).json(success(request, approve ? 'Leave approved' : 'Leave rejected'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listLeaveRequests = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId, status } = req.query as { staffId?: string; status?: LeaveStatus };
+      const requests = await this.shopService.listLeaveRequests(shopOf(req), { staffUserId: staffId, status });
+      res.status(200).json(success(requests));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getMyLeaveBalance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const balance = await this.shopService.getLeaveBalance(shopOf(req), userIdOf(req));
+      res.status(200).json(success(balance));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getStaffLeaveBalance = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const balance = await this.shopService.getLeaveBalance(shopOf(req), staffId);
+      res.status(200).json(success(balance));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Payroll ──────────────────────────────────────────────────────────
+  listStaffProfiles = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const profiles = await this.shopService.listStaffProfiles(shopOf(req));
+      res.status(200).json(success(profiles));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  upsertStaffProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const profile = await this.shopService.upsertStaffProfile(
+        shopOf(req), staffId, req.body as StaffProfileUpdateBody,
+      );
+      res.status(200).json(success(profile, 'Salary profile saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  generatePayrollRecord = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId } = req.params as { staffId: string };
+      const { month } = req.body as { month: string };
+      if (!month) throw AppError.badRequest('month is required (YYYY-MM)');
+      const record = await this.shopService.generatePayrollRecord(shopOf(req), staffId, month);
+      res.status(200).json(success(record, 'Payroll generated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  addPayrollAdjustment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { recordId } = req.params as { recordId: string };
+      const { label, amountCents, type } = req.body as { label: string; amountCents: number; type: 'bonus' | 'deduction' };
+      if (!label || !amountCents || !type) throw AppError.badRequest('label, amountCents, and type are required');
+      const record = await this.shopService.addPayrollAdjustment(shopOf(req), recordId, { label, amountCents, type });
+      res.status(200).json(success(record, 'Adjustment added'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  finalizePayrollRecord = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { recordId } = req.params as { recordId: string };
+      const record = await this.shopService.finalizePayrollRecord(shopOf(req), recordId);
+      res.status(200).json(success(record, 'Payroll finalized'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  markPayrollPaid = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { recordId } = req.params as { recordId: string };
+      const { paidVia, notes } = req.body as { paidVia: string; notes?: string };
+      if (!paidVia) throw AppError.badRequest('paidVia is required');
+      const record = await this.shopService.markPayrollPaid(shopOf(req), recordId, paidVia, notes);
+      res.status(200).json(success(record, 'Marked as paid'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // Anyone can see their OWN payroll history/payslip — shop_payroll.view
+  // only gates seeing OTHER staff members' salary data, not your own pay.
+  private canViewAllPayroll(req: Request): boolean {
+    const perms = req.user?.permissions ?? [];
+    return perms.includes('*') || perms.includes('shop_payroll.view');
+  }
+
+  listPayrollRecords = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { staffId, month } = req.query as { staffId?: string; month?: string };
+      const staffUserId = this.canViewAllPayroll(req) ? staffId : userIdOf(req);
+      const records = await this.shopService.listPayrollRecords(shopOf(req), { staffUserId, month });
+      res.status(200).json(success(records));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  downloadPayslip = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { recordId } = req.params as { recordId: string };
+      const shopId = shopOf(req);
+      if (!this.canViewAllPayroll(req)) {
+        const record = await this.shopService.getPayrollRecord(shopId, recordId);
+        if (record.staffUserId !== userIdOf(req)) throw AppError.forbidden();
+      }
+      const { buffer, filename } = await this.shopService.downloadPayslip(shopId, recordId);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(buffer);
     } catch (err) {
       next(err);
     }

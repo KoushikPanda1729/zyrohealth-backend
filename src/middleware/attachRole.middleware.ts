@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppDataSource } from '../config/database';
-import { User, UserRole } from '../entities/User';
+import { User, UserRole, ShopStaffRole } from '../entities/User';
 import { AppError } from '../utils/app-error';
 import {
   resolveEffectivePermissions,
   getDefaultTenantId,
 } from '../modules/tenancy/permissions.util';
+import { resolveShopEffectivePermissions } from '../modules/medicine-shops/shop-role.util';
 
 export async function attachRole(
   req: Request,
@@ -51,6 +52,13 @@ export async function attachRole(
         user.tenantId,
         user.roleId,
       );
+    } else if (user.role === UserRole.SHOP) {
+      // The owner always has full access within their own shop — never
+      // gated by the role/permission catalog, same as super_admin.
+      permissions =
+        user.shopStaffRole === ShopStaffRole.OWNER
+          ? ['*']
+          : await resolveShopEffectivePermissions(user.shopRoleId);
     }
 
     req.user = {
@@ -61,6 +69,7 @@ export async function attachRole(
       roleId: user.roleId ?? undefined,
       shopId: user.shopId ?? undefined,
       shopStaffRole: user.shopStaffRole ?? undefined,
+      shopRoleId: user.shopRoleId ?? undefined,
       permissions,
       isActive: user.isActive,
       canCreateAgent: user.canCreateAgent,

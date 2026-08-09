@@ -1,6 +1,7 @@
 import * as bcrypt from 'bcryptjs';
 import { AppDataSource } from '../../config/database';
 import { User, UserRole, ShopStaffRole } from '../../entities/User';
+import { MedicineShopRole } from '../../entities/MedicineShopRole';
 import { AppError } from '../../utils/app-error';
 import { AuthService } from '../auth/auth.service';
 
@@ -20,11 +21,26 @@ export async function inviteShopStaff(
   authService: AuthService,
   shopId: string,
   tenantId: string,
-  data: { fullName: string; email: string; password?: string },
+  data: { fullName: string; email: string; password?: string; shopRoleId?: string },
 ): Promise<{ user: User; inviteLink?: string }> {
   const userRepo = AppDataSource.getRepository(User);
   const existing = await userRepo.findOne({ where: { email: data.email } });
   if (existing) throw AppError.conflict('Email already in use');
+
+  let shopRoleId: string | undefined = data.shopRoleId;
+  if (shopRoleId) {
+    const role = await AppDataSource.getRepository(MedicineShopRole).findOne({
+      where: { id: shopRoleId, shopId },
+    });
+    if (!role) throw AppError.badRequest('Invalid role for this shop');
+  } else {
+    // No role picked — fall back to the shop's auto-seeded default
+    // Cashier role, same as every shop had before custom roles existed.
+    const defaultRole = await AppDataSource.getRepository(MedicineShopRole).findOne({
+      where: { shopId, isSystem: true },
+    });
+    shopRoleId = defaultRole?.id;
+  }
 
   const passwordHash = data.password ? await bcrypt.hash(data.password, 12) : undefined;
   const user = userRepo.create({
@@ -36,6 +52,7 @@ export async function inviteShopStaff(
     shopId,
     tenantId,
     shopStaffRole: ShopStaffRole.CASHIER,
+    shopRoleId,
     isActive: true,
   });
   await userRepo.save(user);

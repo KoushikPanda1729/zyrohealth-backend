@@ -47,6 +47,12 @@ import { MedicineShopCustomer } from '../entities/MedicineShopCustomer';
 import { MedicineShopCustomerLedgerEntry } from '../entities/MedicineShopCustomerLedgerEntry';
 import { MedicineShopSale } from '../entities/MedicineShopSale';
 import { MedicineShopSupplierPrice } from '../entities/MedicineShopSupplierPrice';
+import { MedicineShopRole } from '../entities/MedicineShopRole';
+import { MedicineShopRolePermission } from '../entities/MedicineShopRolePermission';
+import { MedicineShopAttendance } from '../entities/MedicineShopAttendance';
+import { MedicineShopLeaveRequest } from '../entities/MedicineShopLeaveRequest';
+import { MedicineShopStaffProfile } from '../entities/MedicineShopStaffProfile';
+import { MedicineShopPayrollRecord } from '../entities/MedicineShopPayrollRecord';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -103,6 +109,12 @@ export const AppDataSource = new DataSource({
     MedicineShopCustomerLedgerEntry,
     MedicineShopSale,
     MedicineShopSupplierPrice,
+    MedicineShopRole,
+    MedicineShopRolePermission,
+    MedicineShopAttendance,
+    MedicineShopLeaveRequest,
+    MedicineShopStaffProfile,
+    MedicineShopPayrollRecord,
   ],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],

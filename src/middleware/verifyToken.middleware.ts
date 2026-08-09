@@ -15,6 +15,7 @@ declare global {
         roleId?: string;
         shopId?: string;
         shopStaffRole?: string;
+        shopRoleId?: string;
         permissions?: string[];
         isActive?: boolean;
         canCreateAgent?: boolean;

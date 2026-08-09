@@ -77,16 +77,25 @@ export class User extends BaseEntity {
   @Index()
   departmentId?: string | null;
 
-  // Which MedicineShop this user logs in as, for role=shop only. Access is
-  // ownership-based (a shop user can only ever see requests/quotes tied to
-  // their own shopId) — like patient/doctor, this deliberately bypasses the
-  // Permission/Role catalog entirely rather than plugging into it.
+  // Which MedicineShop this user logs in as, for role=shop only. A shop
+  // user can only ever see data tied to their own shopId; within that
+  // shop, the owner has full access and non-owner staff are gated by
+  // their assigned shopRoleId (see MedicineShopRole).
   @Column({ type: 'varchar', nullable: true, name: 'shop_id' })
   @Index()
   shopId?: string | null;
 
   @Column({ type: 'enum', enum: ShopStaffRole, nullable: true, name: 'shop_staff_role' })
   shopStaffRole?: ShopStaffRole | null;
+
+  // Which MedicineShopRole this shop staff member holds, for non-owner
+  // shop staff only — the owner always bypasses this (see
+  // attachRole.middleware.ts) since shopStaffRole === 'owner' already
+  // grants everything. A cashier with no custom role assigned yet falls
+  // back to the shop's auto-seeded default "Cashier" role.
+  @Column({ type: 'varchar', nullable: true, name: 'shop_role_id' })
+  @Index()
+  shopRoleId?: string | null;
 
   @OneToOne(() => PatientProfile, (profile) => profile.user, {
     cascade: true,
