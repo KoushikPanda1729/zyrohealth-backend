@@ -1,3 +1,4 @@
+import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import {
   PrescriptionUploadRequest,
@@ -9,7 +10,9 @@ import {
   QuoteSubmissionChannel,
   QuotedMedicineItem,
 } from '../../entities/MedicineShopQuote';
+import { MedicineShop } from '../../entities/MedicineShop';
 import { Tenant } from '../../entities/Tenant';
+import { MedicineShopAlertsService } from './medicine-shop-alerts.service';
 
 // Plain functions (not a class) deliberately — admin.service.ts (portal
 // submissions) and whatsapp-bot.service.ts (WhatsApp-reply submissions)
@@ -44,6 +47,7 @@ export async function recordShopQuote(
   data: { totalCents?: number; items?: QuotedMedicineItem[]; note?: string },
   submittedVia: QuoteSubmissionChannel,
   sendReceipt: SendReceiptFn,
+  shopAlerts: MedicineShopAlertsService,
 ): Promise<MedicineShopQuote | null> {
   const quoteRepo = AppDataSource.getRepository(MedicineShopQuote);
   const quote = await quoteRepo.findOne({ where: { id: quoteId } });
@@ -60,8 +64,46 @@ export async function recordShopQuote(
   quote.submittedAt = new Date();
   await quoteRepo.save(quote);
 
-  await maybeAutoSelect(quote.requestId, sendReceipt);
+  await maybeAutoSelect(quote.requestId, sendReceipt, shopAlerts);
   return quote;
+}
+
+// Once a quote wins (picked manually, auto-mode, or by the patient), every
+// OTHER shop that already submitted a price for the same request is left
+// dangling at 'submitted' forever unless told otherwise. Flips them to
+// NOT_SELECTED (distinct from DECLINED — the shop didn't opt out, someone
+// else was just chosen) and messages each one over WhatsApp — this fires
+// regardless of whether the patient ever goes on to pay, since "you lost
+// this one" is true the moment a winner is picked.
+export async function markSiblingQuotesNotSelected(
+  requestId: string,
+  winningQuoteId: string,
+  shopAlerts: MedicineShopAlertsService,
+): Promise<void> {
+  const quoteRepo = AppDataSource.getRepository(MedicineShopQuote);
+  const siblings = await quoteRepo.find({
+    where: { requestId, status: MedicineShopQuoteStatus.SUBMITTED },
+  });
+  const losers = siblings.filter((q) => q.id !== winningQuoteId);
+  if (losers.length === 0) return;
+
+  losers.forEach((q) => {
+    q.status = MedicineShopQuoteStatus.NOT_SELECTED;
+  });
+  await quoteRepo.save(losers);
+
+  const shops = await AppDataSource.getRepository(MedicineShop).findBy({
+    id: In(losers.map((q) => q.shopId)),
+  });
+  const shopById = new Map(shops.map((s) => [s.id, s]));
+  for (const quote of losers) {
+    const shop = shopById.get(quote.shopId);
+    if (!shop) continue;
+    await shopAlerts.sendShopMessage(
+      shop,
+      `This prescription request has been filled by another pharmacy — thanks for quoting! We'll message you again next time.`,
+    );
+  }
 }
 
 export async function declineShopQuote(
@@ -84,6 +126,7 @@ export async function declineShopQuote(
 export async function maybeAutoSelect(
   requestId: string,
   sendReceipt: SendReceiptFn,
+  shopAlerts: MedicineShopAlertsService,
 ): Promise<void> {
   const requestRepo = AppDataSource.getRepository(PrescriptionUploadRequest);
   const request = await requestRepo.findOne({ where: { id: requestId } });
@@ -118,5 +161,6 @@ export async function maybeAutoSelect(
   request.chosenQuoteId = cheapest.id;
   await requestRepo.save(request);
 
+  await markSiblingQuotesNotSelected(requestId, cheapest.id, shopAlerts);
   await sendReceipt(request.tenantId, request, cheapest);
 }

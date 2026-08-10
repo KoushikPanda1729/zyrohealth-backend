@@ -12,6 +12,9 @@ import { SalePaymentMode, ControlledDrugInfo } from '../../entities/MedicineShop
 import { AttendanceStatus } from '../../entities/MedicineShopAttendance';
 import { LeaveStatus } from '../../entities/MedicineShopLeaveRequest';
 import { PayrollMode } from '../../entities/MedicineShopStaffProfile';
+import { WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
+import { WhatsAppFlowDefinition } from '../../entities/WhatsAppFlow';
+import { MedicineOrderStatus } from '../../entities/MedicineOrder';
 
 interface StaffProfileUpdateBody {
   employeeCode?: string;
@@ -114,6 +117,48 @@ export class ShopController {
         `attachment; filename="${filename}"`,
       );
       res.send(buffer);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listMyOrders = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const orders = await this.shopService.listMyOrders(shopOf(req));
+      res.status(200).json(success(orders));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getMyOrder = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { orderId } = req.params as { orderId: string };
+      const order = await this.shopService.getMyOrder(shopOf(req), orderId);
+      res.status(200).json(success(order));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateMyOrderStatus = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { orderId } = req.params as { orderId: string };
+      const { status } = req.body as { status: MedicineOrderStatus };
+      const order = await this.shopService.updateMyOrderStatus(shopOf(req), orderId, status);
+      res.status(200).json(success(order, 'Order status updated'));
     } catch (err) {
       next(err);
     }
@@ -1076,6 +1121,205 @@ export class ShopController {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.send(buffer);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── WhatsApp ─────────────────────────────────────────────────────────
+  getMyWhatsAppStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const status = await this.shopService.getMyWhatsAppStatus(shopOf(req));
+      res.status(200).json(success(status));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getMyWhatsAppSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const session = await this.shopService.getMyWhatsAppSession(shopOf(req));
+      res.status(200).json(success(session));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  resetMyWhatsAppSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const session = await this.shopService.resetMyWhatsAppSession(shopOf(req));
+      res.status(200).json(success(session, 'Conversation reset'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── WhatsApp Module ──────────────────────────────────────────────────
+  getWhatsAppModuleStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const status = await this.shopService.getWhatsAppModuleStatus(shopOf(req));
+      res.status(200).json(success(status));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getWhatsAppModuleConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const config = await this.shopService.getWhatsAppModuleConfig(shopOf(req));
+      res.status(200).json(success(config));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateWhatsAppModuleConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { provider } = req.body as { provider?: WhatsAppProviderType };
+      if (!provider) throw AppError.badRequest('provider is required');
+      const result = await this.shopService.updateWhatsAppModuleConfig(shopOf(req), req.body as Parameters<ShopService['updateWhatsAppModuleConfig']>[1]);
+      res.status(200).json(success(result, 'WhatsApp settings saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listWhatsAppModuleFlows = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const flows = await this.shopService.listWhatsAppModuleFlows(shopOf(req));
+      res.status(200).json(success(flows));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      const flow = await this.shopService.getWhatsAppModuleFlow(shopOf(req), flowId);
+      res.status(200).json(success(flow));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { name } = req.body as { name: string };
+      if (!name) throw AppError.badRequest('name is required');
+      const flow = await this.shopService.createWhatsAppModuleFlow(shopOf(req), name);
+      res.status(201).json(success(flow, 'Flow created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  generateWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { name, prompt } = req.body as { name: string; prompt: string };
+      if (!name || !prompt) throw AppError.badRequest('name and prompt are required');
+      const flow = await this.shopService.generateWhatsAppModuleFlow(shopOf(req), name, prompt);
+      res.status(201).json(success(flow, 'Flow generated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  editWhatsAppModuleFlowWithAi = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      const { prompt } = req.body as { prompt: string };
+      if (!prompt) throw AppError.badRequest('prompt is required');
+      const flow = await this.shopService.editWhatsAppModuleFlowWithAi(shopOf(req), flowId, prompt);
+      res.status(200).json(success(flow, 'Flow updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      const { name, definition } = req.body as { name?: string; definition?: WhatsAppFlowDefinition };
+      const flow = await this.shopService.updateWhatsAppModuleFlow(shopOf(req), flowId, { name, definition });
+      res.status(200).json(success(flow, 'Flow saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  activateWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      const flow = await this.shopService.activateWhatsAppModuleFlow(shopOf(req), flowId);
+      res.status(200).json(success(flow, 'Flow activated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deactivateWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      const flow = await this.shopService.deactivateWhatsAppModuleFlow(shopOf(req), flowId);
+      res.status(200).json(success(flow, 'Flow deactivated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deleteWhatsAppModuleFlow = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { flowId } = req.params as { flowId: string };
+      await this.shopService.deleteWhatsAppModuleFlow(shopOf(req), flowId);
+      res.status(200).json(success(null, 'Flow deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listWhatsAppModuleSessions = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { page, limit, awaitingHuman } = req.query as { page?: string; limit?: string; awaitingHuman?: string };
+      const result = await this.shopService.listWhatsAppModuleSessions(
+        shopOf(req),
+        page ? parseInt(page, 10) : 1,
+        limit ? parseInt(limit, 10) : 20,
+        awaitingHuman !== undefined ? awaitingHuman === 'true' : undefined,
+      );
+      res.status(200).json({ success: true, data: result.data, pagination: { total: result.total } });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getWhatsAppModuleSessionDetail = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const session = await this.shopService.getWhatsAppModuleSessionDetail(shopOf(req), sessionId);
+      res.status(200).json(success(session));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  replyToWhatsAppModuleSession = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const { text } = req.body as { text: string };
+      if (!text?.trim()) throw AppError.badRequest('text is required');
+      const session = await this.shopService.replyToWhatsAppModuleSession(shopOf(req), sessionId, text.trim());
+      res.status(200).json(success(session, 'Reply sent'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  resumeWhatsAppModuleSessionBot = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { sessionId } = req.params as { sessionId: string };
+      const session = await this.shopService.resumeWhatsAppModuleSessionBot(shopOf(req), sessionId);
+      res.status(200).json(success(session, 'Bot resumed'));
     } catch (err) {
       next(err);
     }

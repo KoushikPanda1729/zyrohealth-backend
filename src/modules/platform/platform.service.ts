@@ -10,6 +10,10 @@ import { Role } from '../../entities/Role';
 import { RolePermission } from '../../entities/RolePermission';
 import { User, UserRole } from '../../entities/User';
 import { MedicineShop } from '../../entities/MedicineShop';
+import {
+  MedicineShopPayout,
+  MedicineShopPayoutStatus,
+} from '../../entities/MedicineShopPayout';
 import { AppError } from '../../utils/app-error';
 import { AuthService } from '../auth/auth.service';
 
@@ -402,6 +406,95 @@ export class PlatformService {
         isStandaloneMedicineShop: tenant?.isStandaloneMedicineShop ?? false,
       };
     });
+  }
+
+  // Grants/revokes a standalone shop's own independent WhatsApp module
+  // (provider account + flow builder + sessions, see shop-whatsapp-module
+  // .util.ts) — super_admin-only, since this is effectively handing the
+  // shop a whole new customer-facing channel plus the ability to store its
+  // own WhatsApp Business credentials.
+  async setMedicineShopWhatsAppModule(
+    shopId: string,
+    enabled: boolean,
+    fromNumber?: string,
+  ): Promise<MedicineShop> {
+    const repo = AppDataSource.getRepository(MedicineShop);
+    const shop = await repo.findOne({ where: { id: shopId } });
+    if (!shop) throw AppError.notFound('Medicine shop');
+    shop.whatsappModuleEnabled = enabled;
+    shop.whatsappModuleEnabledAt = enabled ? new Date() : undefined;
+    if (fromNumber !== undefined) shop.whatsappModuleFromNumber = fromNumber || undefined;
+    return repo.save(shop);
+  }
+
+  // Reconciliation ledger for the "platform collects, pays shops out
+  // later" model — there's no Stripe Connect/Razorpay Route in this
+  // codebase (one platform-wide Stripe account), so every patient payment
+  // lands with the platform first; this is where that money owed to each
+  // shop is tracked and marked settled once paid back outside the app.
+  async listShopPayoutSummaries(): Promise<
+    { shopId: string; shopName: string; owedCents: number; settledCents: number }[]
+  > {
+    const payoutRepo = AppDataSource.getRepository(MedicineShopPayout);
+    const payouts = await payoutRepo.find();
+    if (payouts.length === 0) return [];
+
+    const byShop = new Map<string, { owedCents: number; settledCents: number }>();
+    for (const p of payouts) {
+      const entry = byShop.get(p.shopId) ?? { owedCents: 0, settledCents: 0 };
+      if (p.status === MedicineShopPayoutStatus.OWED) entry.owedCents += p.amountCents;
+      else entry.settledCents += p.amountCents;
+      byShop.set(p.shopId, entry);
+    }
+
+    const shops = await AppDataSource.getRepository(MedicineShop).findBy({
+      id: In(Array.from(byShop.keys())),
+    });
+    const nameById = new Map(shops.map((s) => [s.id, s.name]));
+
+    return Array.from(byShop.entries()).map(([shopId, totals]) => ({
+      shopId,
+      shopName: nameById.get(shopId) ?? 'Unknown shop',
+      ...totals,
+    }));
+  }
+
+  async listShopPayoutEntries(shopId: string): Promise<MedicineShopPayout[]> {
+    return AppDataSource.getRepository(MedicineShopPayout).find({
+      where: { shopId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  // Marks every currently-owed entry for a shop as settled — this does NOT
+  // move any real money, it records that the platform paid the shop back
+  // outside the app (bank transfer/UPI) so the running balance resets.
+  async settleShopPayouts(
+    shopId: string,
+    settledByUserId: string,
+    note?: string,
+  ): Promise<{ settledCount: number; settledCents: number }> {
+    const payoutRepo = AppDataSource.getRepository(MedicineShopPayout);
+    const owed = await payoutRepo.find({
+      where: { shopId, status: MedicineShopPayoutStatus.OWED },
+    });
+    if (owed.length === 0) {
+      throw AppError.badRequest('Nothing owed to this shop right now');
+    }
+
+    const now = new Date();
+    owed.forEach((p) => {
+      p.status = MedicineShopPayoutStatus.SETTLED;
+      p.settledAt = now;
+      p.settledByUserId = settledByUserId;
+      if (note) p.note = note;
+    });
+    await payoutRepo.save(owed);
+
+    return {
+      settledCount: owed.length,
+      settledCents: owed.reduce((sum, p) => sum + p.amountCents, 0),
+    };
   }
 
   async createTenantAdmin(data: {

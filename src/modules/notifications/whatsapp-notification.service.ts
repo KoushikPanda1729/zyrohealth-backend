@@ -141,8 +141,8 @@ export class WhatsAppNotificationService {
   // (not a canned lifecycle notification like the methods above) — unlike
   // the others, this does NOT swallow errors, so the admin UI can show a
   // real failure instead of silently reporting success.
-  async sendRaw(tenantId: string, phone: string, text: string): Promise<void> {
-    const provider = await this.providerResolver.resolve(tenantId);
+  async sendRaw(tenantId: string, phone: string, text: string, shopId?: string): Promise<void> {
+    const provider = await this.providerResolver.resolve(tenantId, shopId);
     await provider.sendText(phone, text);
   }
 

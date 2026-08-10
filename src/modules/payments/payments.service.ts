@@ -3,7 +3,10 @@ import { AppDataSource } from '../../config/database';
 import { Payment, PaymentGateway, PaymentStatus } from '../../entities/Payment';
 import { Booking, BookingStatus } from '../../entities/Booking';
 import { User } from '../../entities/User';
-import { IPaymentProvider } from '../../providers/payment/payment.provider.interface';
+import {
+  IPaymentProvider,
+  WebhookEvent,
+} from '../../providers/payment/payment.provider.interface';
 import { PAYMENT_PROVIDER } from '../../config/container';
 import { AppError } from '../../utils/app-error';
 import { InitiatePaymentDtoType } from './payments.dto';
@@ -101,9 +104,17 @@ export class PaymentsService {
     });
   }
 
+  // Kept for any other caller — verifies then delegates to
+  // processWebhookEvent. PaymentsController.webhook verifies once itself
+  // and calls processWebhookEvent directly so the same parsed event can
+  // also be handed to MedicineOrderPaymentsService without re-verifying
+  // the signature twice.
   async handleWebhook(payload: Buffer, signature: string): Promise<void> {
     const event = this.paymentProvider.verifyWebhook(payload, signature);
+    await this.processWebhookEvent(event);
+  }
 
+  async processWebhookEvent(event: WebhookEvent): Promise<void> {
     await AppDataSource.transaction(async (manager) => {
       const paymentRepo = manager.getRepository(Payment);
       const bookingRepo = manager.getRepository(Booking);

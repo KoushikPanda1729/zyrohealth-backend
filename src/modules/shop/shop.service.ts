@@ -1,5 +1,5 @@
 import { injectable, inject } from 'tsyringe';
-import { In } from 'typeorm';
+import { In, Not, IsNull } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import {
   MedicineShopQuote,
@@ -8,6 +8,7 @@ import {
   QuoteSubmissionChannel,
 } from '../../entities/MedicineShopQuote';
 import { PrescriptionUploadRequest } from '../../entities/PrescriptionUploadRequest';
+import { MedicineOrder, MedicineOrderStatus } from '../../entities/MedicineOrder';
 import { Tenant } from '../../entities/Tenant';
 import { AppError } from '../../utils/app-error';
 import { WhatsAppBotService } from '../whatsapp/whatsapp-bot.service';
@@ -18,6 +19,7 @@ import {
   recordShopQuote,
   declineShopQuote,
 } from '../medicine-shops/quote-processing.util';
+import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
 import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
 import { STORAGE_PROVIDER } from '../../config/container';
 import { MedicineShop } from '../../entities/MedicineShop';
@@ -147,6 +149,34 @@ import {
   getPayrollRecord,
 } from '../medicine-shops/payroll.util';
 import { buildPayslipPdf, PayslipLine } from '../../utils/payslip-pdf';
+import { WhatsAppSession } from '../../entities/WhatsAppSession';
+import {
+  getShopWhatsAppStatus,
+  ShopWhatsAppStatus,
+  getShopWhatsAppSession,
+  resetShopWhatsAppSession,
+} from '../medicine-shops/shop-whatsapp.util';
+import { WhatsAppNotificationService } from '../notifications/whatsapp-notification.service';
+import { WhatsAppFlow, WhatsAppFlowDefinition } from '../../entities/WhatsAppFlow';
+import { WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
+import {
+  getShopModuleStatus,
+  getShopModuleConfig,
+  updateShopModuleConfig,
+  listShopFlows,
+  getShopFlow,
+  createShopFlow,
+  generateShopFlow,
+  editShopFlowWithAi,
+  updateShopFlow,
+  activateShopFlow,
+  deactivateShopFlow,
+  deleteShopFlow,
+  listShopModuleSessions,
+  getShopModuleSessionDetail,
+  resumeShopModuleSessionBot,
+  replyToShopModuleSession,
+} from '../medicine-shops/shop-whatsapp-module.util';
 
 const S3_URL_PATTERN = /\.s3\.[^.]+\.amazonaws\.com\//;
 
@@ -160,6 +190,8 @@ export class ShopService {
     @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
     @inject(AI_PROVIDER) private readonly ai: IAiProvider,
     private readonly authService: AuthService,
+    private readonly whatsAppNotification: WhatsAppNotificationService,
+    private readonly shopAlerts: MedicineShopAlertsService,
   ) {}
 
   // imageUrl is stored as the raw (private) S3 object URL — resolve a
@@ -235,6 +267,7 @@ export class ShopService {
       QuoteSubmissionChannel.PORTAL,
       (tenantId, request, chosenQuote) =>
         this.whatsAppBot.sendPatientReceipt(tenantId, request, chosenQuote),
+      this.shopAlerts,
     );
     if (!quote) throw AppError.notFound('Quote request');
     return quote;
@@ -304,6 +337,61 @@ export class ShopService {
     });
 
     return { buffer, filename: `quote-${quote.requestId.slice(0, 8)}.pdf` };
+  }
+
+  // A shop can only see an order once the tenant admin has explicitly
+  // relayed "payment received, please fulfil" (shopNotifiedAt) — before
+  // that, the shop has no way to know whether their quote even won,
+  // matching the deliberate "admin controls when the shop finds out"
+  // design (see AdminService.notifyShopOrderReady).
+  async listMyOrders(shopId: string): Promise<MedicineOrder[]> {
+    return AppDataSource.getRepository(MedicineOrder).find({
+      where: { shopId, shopNotifiedAt: Not(IsNull()) },
+      order: { shopNotifiedAt: 'DESC' },
+    });
+  }
+
+  async getMyOrder(shopId: string, orderId: string): Promise<MedicineOrder> {
+    const order = await AppDataSource.getRepository(MedicineOrder).findOne({
+      where: { id: orderId, shopId, shopNotifiedAt: Not(IsNull()) },
+    });
+    if (!order) throw AppError.notFound('Order');
+    return order;
+  }
+
+  // Restricted to the forward delivery sequence only — a shop can't skip
+  // ahead arbitrarily or move an order backwards.
+  private static readonly ORDER_STATUS_SEQUENCE: MedicineOrderStatus[] = [
+    MedicineOrderStatus.PACKED,
+    MedicineOrderStatus.PICKED_UP,
+    MedicineOrderStatus.OUT_FOR_DELIVERY,
+    MedicineOrderStatus.DELIVERED,
+  ];
+
+  async updateMyOrderStatus(
+    shopId: string,
+    orderId: string,
+    status: MedicineOrderStatus,
+  ): Promise<MedicineOrder> {
+    const order = await this.getMyOrder(shopId, orderId);
+
+    const nextIndex = ShopService.ORDER_STATUS_SEQUENCE.indexOf(status);
+    if (nextIndex === -1) {
+      throw AppError.badRequest('Invalid delivery status for a shop to set');
+    }
+    const currentIndex = ShopService.ORDER_STATUS_SEQUENCE.indexOf(order.status);
+    if (nextIndex !== currentIndex + 1) {
+      throw AppError.badRequest(
+        `Order must move through ${ShopService.ORDER_STATUS_SEQUENCE.join(' → ')} in order`,
+      );
+    }
+
+    order.status = status;
+    order.statusHistory = [
+      ...order.statusHistory,
+      { status, at: new Date().toISOString() },
+    ];
+    return AppDataSource.getRepository(MedicineOrder).save(order);
   }
 
   // The shop's own profile + which tenant it serves — a shop is onboarded
@@ -867,5 +955,97 @@ export class ShopService {
       status: record.status,
     });
     return { buffer, filename: `payslip-${record.month}-${record.staffUserId.slice(0, 8)}.pdf` };
+  }
+
+  // ── WhatsApp (this shop's own link status + conversation) ────────────
+  async getMyWhatsAppStatus(shopId: string): Promise<ShopWhatsAppStatus> {
+    return getShopWhatsAppStatus(shopId);
+  }
+
+  async getMyWhatsAppSession(shopId: string): Promise<WhatsAppSession | null> {
+    return getShopWhatsAppSession(shopId);
+  }
+
+  async resetMyWhatsAppSession(shopId: string): Promise<WhatsAppSession> {
+    return resetShopWhatsAppSession(shopId);
+  }
+
+  // ── WhatsApp Module (standalone shop's OWN independent WhatsApp
+  // presence — provider config + flow builder + sessions, gated by
+  // whatsappModuleEnabled) ──────────────────────────────────────────────
+  async getWhatsAppModuleStatus(shopId: string): Promise<{ enabled: boolean; enabledAt?: Date }> {
+    return getShopModuleStatus(shopId);
+  }
+
+  async getWhatsAppModuleConfig(shopId: string): ReturnType<typeof getShopModuleConfig> {
+    return getShopModuleConfig(shopId);
+  }
+
+  async updateWhatsAppModuleConfig(
+    shopId: string,
+    data: Parameters<typeof updateShopModuleConfig>[1],
+  ): Promise<{ provider: WhatsAppProviderType }> {
+    return updateShopModuleConfig(shopId, data);
+  }
+
+  async listWhatsAppModuleFlows(shopId: string): Promise<WhatsAppFlow[]> {
+    return listShopFlows(shopId);
+  }
+
+  async getWhatsAppModuleFlow(shopId: string, id: string): Promise<WhatsAppFlow> {
+    return getShopFlow(shopId, id);
+  }
+
+  async createWhatsAppModuleFlow(shopId: string, name: string): Promise<WhatsAppFlow> {
+    return createShopFlow(shopId, name);
+  }
+
+  async generateWhatsAppModuleFlow(shopId: string, name: string, prompt: string): Promise<WhatsAppFlow> {
+    return generateShopFlow(this.ai, shopId, name, prompt);
+  }
+
+  async editWhatsAppModuleFlowWithAi(shopId: string, flowId: string, prompt: string): Promise<WhatsAppFlow> {
+    return editShopFlowWithAi(this.ai, shopId, flowId, prompt);
+  }
+
+  async updateWhatsAppModuleFlow(
+    shopId: string,
+    id: string,
+    updates: { name?: string; definition?: WhatsAppFlowDefinition },
+  ): Promise<WhatsAppFlow> {
+    return updateShopFlow(shopId, id, updates);
+  }
+
+  async activateWhatsAppModuleFlow(shopId: string, id: string): Promise<WhatsAppFlow> {
+    return activateShopFlow(shopId, id);
+  }
+
+  async deactivateWhatsAppModuleFlow(shopId: string, id: string): Promise<WhatsAppFlow> {
+    return deactivateShopFlow(shopId, id);
+  }
+
+  async deleteWhatsAppModuleFlow(shopId: string, id: string): Promise<void> {
+    return deleteShopFlow(shopId, id);
+  }
+
+  async listWhatsAppModuleSessions(
+    shopId: string,
+    page: number,
+    limit: number,
+    awaitingHuman?: boolean,
+  ): ReturnType<typeof listShopModuleSessions> {
+    return listShopModuleSessions(shopId, page, limit, awaitingHuman);
+  }
+
+  async getWhatsAppModuleSessionDetail(shopId: string, id: string): Promise<WhatsAppSession> {
+    return getShopModuleSessionDetail(shopId, id);
+  }
+
+  async replyToWhatsAppModuleSession(shopId: string, id: string, text: string): Promise<WhatsAppSession> {
+    return replyToShopModuleSession(this.whatsAppNotification, shopId, id, text);
+  }
+
+  async resumeWhatsAppModuleSessionBot(shopId: string, id: string): Promise<WhatsAppSession> {
+    return resumeShopModuleSessionBot(shopId, id);
   }
 }

@@ -171,6 +171,64 @@ export class PlatformController {
     }
   };
 
+  setMedicineShopWhatsAppModule = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { enabled, fromNumber } = req.body as { enabled: boolean; fromNumber?: string };
+      const shop = await this.platformService.setMedicineShopWhatsAppModule(id, !!enabled, fromNumber);
+      res.status(200).json(success(shop, enabled ? 'WhatsApp module enabled' : 'WhatsApp module disabled'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listShopPayoutSummaries = async (
+    _req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const summaries = await this.platformService.listShopPayoutSummaries();
+      res.status(200).json(success(summaries));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listShopPayoutEntries = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { shopId } = req.params as { shopId: string };
+      const entries = await this.platformService.listShopPayoutEntries(shopId);
+      res.status(200).json(success(entries));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  settleShopPayouts = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const { shopId } = req.params as { shopId: string };
+      const { note } = req.body as { note?: string };
+      const result = await this.platformService.settleShopPayouts(shopId, req.user.id, note);
+      res.status(200).json(success(result, 'Payout marked settled'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
   createStandaloneMedicineShop = async (
     req: Request,
     res: Response,

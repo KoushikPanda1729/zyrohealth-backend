@@ -286,6 +286,20 @@ export class AdminController {
     }
   };
 
+  notifyShopOrderReady = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const order = await this.adminService.notifyShopOrderReady(tenantOf(req), id);
+      res.status(200).json(success(order, 'Pharmacy notified'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
   listWhatsAppSessions = async (
     req: Request,
     res: Response,

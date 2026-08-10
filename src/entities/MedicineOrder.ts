@@ -11,6 +11,19 @@ export enum MedicineOrderStatus {
   CANCELLED = 'cancelled',
 }
 
+// Separate from MedicineOrderStatus (delivery lifecycle) — this tracks the
+// Stripe Checkout session created for the order (see
+// MedicineOrderPaymentsService). 'unpaid' is the state before a checkout
+// session even exists; an order created directly (not via the WhatsApp
+// prescription-quote flow) stays 'unpaid' indefinitely and is unaffected.
+export enum MedicineOrderPaymentStatus {
+  UNPAID = 'unpaid',
+  PENDING = 'pending',
+  PAID = 'paid',
+  FAILED = 'failed',
+  REFUNDED = 'refunded',
+}
+
 export interface OrderedMedicineItem {
   name: string;
   genericName?: string;
@@ -42,6 +55,34 @@ export class MedicineOrder extends BaseEntity {
   @Column({ name: 'prescription_id', nullable: true })
   @Index()
   prescriptionId?: string;
+
+  // Set only when the order came from the WhatsApp prescription-quote
+  // marketplace (see whatsapp-bot.service.ts#createOrderFromQuote) — an
+  // order placed some other way leaves these unset.
+  @Column({ name: 'shop_id', nullable: true })
+  @Index()
+  shopId?: string;
+
+  @Column({ name: 'request_id', nullable: true })
+  @Index()
+  requestId?: string;
+
+  @Column({ name: 'quote_id', nullable: true })
+  @Index()
+  quoteId?: string;
+
+  @Column({
+    name: 'payment_status',
+    type: 'enum',
+    enum: MedicineOrderPaymentStatus,
+    default: MedicineOrderPaymentStatus.UNPAID,
+  })
+  paymentStatus!: MedicineOrderPaymentStatus;
+
+  // Stamped by the tenant admin's "Notify Shop to Deliver" action — gates
+  // what a shop can see via GET /api/shop/orders (see shop.service.ts).
+  @Column({ name: 'shop_notified_at', type: 'timestamptz', nullable: true })
+  shopNotifiedAt?: Date;
 
   @Column({ type: 'jsonb', default: '[]' })
   items!: OrderedMedicineItem[];

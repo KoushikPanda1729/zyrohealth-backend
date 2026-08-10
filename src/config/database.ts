@@ -25,6 +25,8 @@ import { VoiceAgentVersion } from '../entities/VoiceAgentVersion';
 import { VoiceAgentPhoneNumber } from '../entities/VoiceAgentPhoneNumber';
 import { VoiceAgentCall } from '../entities/VoiceAgentCall';
 import { MedicineOrder } from '../entities/MedicineOrder';
+import { MedicineOrderPayment } from '../entities/MedicineOrderPayment';
+import { MedicineShopPayout } from '../entities/MedicineShopPayout';
 import { WhatsAppSession } from '../entities/WhatsAppSession';
 import { WhatsAppFlow } from '../entities/WhatsAppFlow';
 import { Tenant } from '../entities/Tenant';
@@ -53,6 +55,7 @@ import { MedicineShopAttendance } from '../entities/MedicineShopAttendance';
 import { MedicineShopLeaveRequest } from '../entities/MedicineShopLeaveRequest';
 import { MedicineShopStaffProfile } from '../entities/MedicineShopStaffProfile';
 import { MedicineShopPayrollRecord } from '../entities/MedicineShopPayrollRecord';
+import { MedicineShopWhatsAppConfig } from '../entities/MedicineShopWhatsAppConfig';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -87,6 +90,8 @@ export const AppDataSource = new DataSource({
     VoiceAgentPhoneNumber,
     VoiceAgentCall,
     MedicineOrder,
+    MedicineOrderPayment,
+    MedicineShopPayout,
     WhatsAppSession,
     WhatsAppFlow,
     Tenant,
@@ -115,6 +120,7 @@ export const AppDataSource = new DataSource({
     MedicineShopLeaveRequest,
     MedicineShopStaffProfile,
     MedicineShopPayrollRecord,
+    MedicineShopWhatsAppConfig,
   ],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],

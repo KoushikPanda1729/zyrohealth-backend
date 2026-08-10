@@ -7,6 +7,7 @@ import { WhatsAppBotService } from './whatsapp-bot.service';
 import { WhatsAppProviderResolver } from './whatsapp-provider-resolver.service';
 import { formatWhatsAppError } from '../../providers/whatsapp/format-whatsapp-error';
 import { resolveTenantIdForNumber } from '../tenancy/permissions.util';
+import { resolveShopIdForNumber } from '../medicine-shops/shop-whatsapp-module.util';
 import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
 import { STORAGE_PROVIDER } from '../../config/container';
 import {
@@ -74,11 +75,11 @@ export class WhatsAppWebhookController {
       // platform's global one.
       const firstToNumber =
         payload.entry?.[0]?.changes?.[0]?.value?.metadata?.display_phone_number;
-      const signatureTenantId = await resolveTenantIdForNumber(
-        firstToNumber ? `+${firstToNumber.replace(/^\+/, '')}` : undefined,
-      );
+      const normalizedFirstToNumber = firstToNumber ? `+${firstToNumber.replace(/^\+/, '')}` : undefined;
+      const signatureShopId = await resolveShopIdForNumber(normalizedFirstToNumber);
+      const signatureTenantId = await resolveTenantIdForNumber(normalizedFirstToNumber);
       const { metaAppSecret } =
-        await this.providerResolver.getWebhookSecrets(signatureTenantId);
+        await this.providerResolver.getWebhookSecrets(signatureTenantId, signatureShopId);
       const appSecret = metaAppSecret || env.META_WHATSAPP_APP_SECRET;
 
       if (appSecret) {
@@ -102,9 +103,9 @@ export class WhatsAppWebhookController {
       for (const entry of payload.entry ?? []) {
         for (const change of entry.changes ?? []) {
           const toNumber = change.value?.metadata?.display_phone_number;
-          const tenantId = await resolveTenantIdForNumber(
-            toNumber ? `+${toNumber.replace(/^\+/, '')}` : undefined,
-          );
+          const normalizedToNumber = toNumber ? `+${toNumber.replace(/^\+/, '')}` : undefined;
+          const shopId = await resolveShopIdForNumber(normalizedToNumber);
+          const tenantId = await resolveTenantIdForNumber(normalizedToNumber);
           for (const message of change.value?.messages ?? []) {
             if (message.type !== 'text' && message.type !== 'image') continue;
             const phone = message.from.startsWith('+')
@@ -114,7 +115,7 @@ export class WhatsAppWebhookController {
               let media: { url: string; mimeType: string } | undefined;
               if (message.type === 'image' && message.image) {
                 const { metaAccessToken, metaApiVersion } =
-                  await this.providerResolver.getMediaCredentials(tenantId);
+                  await this.providerResolver.getMediaCredentials(tenantId, shopId);
                 const { buffer, mimeType } = await downloadMetaMedia(
                   message.image.id,
                   metaAccessToken,
@@ -127,12 +128,22 @@ export class WhatsAppWebhookController {
                 );
                 media = { url, mimeType };
               }
-              await this.bot.processInboundMessage(
-                tenantId,
-                phone,
-                message.text?.body ?? '',
-                media,
-              );
+              if (shopId) {
+                await this.bot.processInboundShopModuleMessage(
+                  shopId,
+                  tenantId,
+                  phone,
+                  message.text?.body ?? '',
+                  media,
+                );
+              } else {
+                await this.bot.processInboundMessage(
+                  tenantId,
+                  phone,
+                  message.text?.body ?? '',
+                  media,
+                );
+              }
             } catch (err) {
               console.error(
                 `[WhatsApp Webhook] Failed processing inbound Meta message: ${formatWhatsAppError(err)}`,
@@ -160,9 +171,10 @@ export class WhatsAppWebhookController {
       // Resolve tenant *before* validating the signature — a tenant with
       // its own Twilio account must be validated against its own auth
       // token, not the platform's global one.
+      const shopId = await resolveShopIdForNumber(to || undefined);
       const tenantId = await resolveTenantIdForNumber(to || undefined);
       const { twilioAuthToken } =
-        await this.providerResolver.getWebhookSecrets(tenantId);
+        await this.providerResolver.getWebhookSecrets(tenantId, shopId);
       const authToken = twilioAuthToken || env.TWILIO_AUTH_TOKEN;
 
       if (signature) {
@@ -196,7 +208,7 @@ export class WhatsAppWebhookController {
             mediaContentType?.startsWith('image/')
           ) {
             const { twilioAccountSid, twilioAuthToken: mediaAuthToken } =
-              await this.providerResolver.getMediaCredentials(tenantId);
+              await this.providerResolver.getMediaCredentials(tenantId, shopId);
             const buffer = await downloadTwilioMedia(
               mediaUrl,
               twilioAccountSid,
@@ -209,7 +221,11 @@ export class WhatsAppWebhookController {
             );
             media = { url, mimeType: mediaContentType };
           }
-          await this.bot.processInboundMessage(tenantId, from, body, media);
+          if (shopId) {
+            await this.bot.processInboundShopModuleMessage(shopId, tenantId, from, body, media);
+          } else {
+            await this.bot.processInboundMessage(tenantId, from, body, media);
+          }
         } catch (err) {
           console.error(
             `[WhatsApp Webhook] Failed processing inbound Twilio message: ${formatWhatsAppError(err)}`,

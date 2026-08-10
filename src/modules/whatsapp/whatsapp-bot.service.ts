@@ -35,10 +35,12 @@ import { matchOptionIndex } from './match-option.util';
 import {
   recordShopQuote,
   declineShopQuote,
+  markSiblingQuotesNotSelected,
 } from '../medicine-shops/quote-processing.util';
 import { decrementStockForOrder } from '../medicine-shops/catalog.util';
 import { MedicineShopCatalogItem } from '../../entities/MedicineShopCatalogItem';
 import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
+import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
 import { env } from '../../config/env';
 
 const MAIN_MENU_BODY = `Hi! 👋 Welcome to ZyroHealth. How can I help?`;
@@ -139,6 +141,7 @@ export class WhatsAppBotService {
     private readonly doctors: DoctorsService,
     private readonly bookings: BookingsService,
     private readonly shopAlerts: MedicineShopAlertsService,
+    private readonly medicineOrderPayments: MedicineOrderPaymentsService,
   ) {}
 
   async processInboundMessage(
@@ -310,6 +313,69 @@ export class WhatsAppBotService {
       session.conversationState = WhatsAppConversationState.AWAITING_AI;
       const aiReply = await this.callAi(session);
       await this.reply(session, aiReply);
+    }
+
+    session.lastMessageAt = new Date();
+    await sessionRepo.save(session);
+  }
+
+  // A standalone shop's OWN independent WhatsApp module (see
+  // shop-whatsapp-module.util.ts) — entirely separate conversation space
+  // from processInboundMessage above. There is no hardcoded menu/AI/
+  // booking bot here on purpose: the shop's active flow (built via the
+  // same visual flow builder tenants use) is the ONLY thing that can
+  // drive this conversation. With no active flow, the number simply
+  // doesn't auto-respond yet — that's the shop's own signal to go build
+  // one, not a bug.
+  async processInboundShopModuleMessage(
+    shopId: string,
+    tenantId: string,
+    phone: string,
+    text: string,
+    media?: { url: string; mimeType: string },
+  ): Promise<void> {
+    const sessionRepo = AppDataSource.getRepository(WhatsAppSession);
+    let session = await sessionRepo.findOne({ where: { phoneNumber: phone, shopId } });
+
+    if (!session) {
+      session = sessionRepo.create({
+        tenantId,
+        shopId,
+        phoneNumber: phone,
+        conversationState: WhatsAppConversationState.MAIN_MENU,
+        awaitingHuman: false,
+        messages: [],
+        flowVariables: {},
+      });
+    }
+
+    this.appendMessage(session, 'user', text, media);
+
+    if (session.awaitingHuman) {
+      session.lastMessageAt = new Date();
+      await sessionRepo.save(session);
+      return;
+    }
+
+    const activeFlow = await AppDataSource.getRepository(WhatsAppFlow).findOne({
+      where: { isActive: true, shopId },
+    });
+
+    if (activeFlow) {
+      if (session.activeFlowId !== activeFlow.id) {
+        session.activeFlowId = activeFlow.id;
+        session.flowNodeId = null;
+        session.flowVariables = {};
+      }
+      const result = await this.flowEngine.processInbound(session, text, activeFlow);
+      if (result === 'ended') {
+        session.activeFlowId = null;
+        session.flowNodeId = null;
+      }
+    } else if (session.activeFlowId) {
+      // The flow this session was mid-way through got deactivated/deleted.
+      session.activeFlowId = null;
+      session.flowNodeId = null;
     }
 
     session.lastMessageAt = new Date();
@@ -860,6 +926,9 @@ export class WhatsAppBotService {
     const order = orderRepo.create({
       tenantId: request.tenantId,
       patientId: request.patientId,
+      shopId: quote.shopId,
+      requestId: request.id,
+      quoteId: quote.id,
       items,
       totalCents,
       status: MedicineOrderStatus.PLACED,
@@ -994,10 +1063,24 @@ export class WhatsAppBotService {
         pendingOrderRequestId: undefined,
         awaitingDeliveryAddress: undefined,
       };
-      await this.reply(
-        session,
-        `✅ Order confirmed! We'll keep you posted here as it's packed and shipped.`,
-      );
+
+      // The order exists but isn't real until it's paid for — a link is
+      // sent instead of "order confirmed", and the shop is only told to
+      // fulfil it once the payment webhook comes back (see
+      // MedicineOrderPaymentsService + AdminService.notifyShopOrderReady).
+      try {
+        const { url } = await this.medicineOrderPayments.createCheckoutForOrder(order);
+        await this.reply(
+          session,
+          `Almost there! Please pay ₹${(order.totalCents / 100).toFixed(2)} to place this order:\n${url}\n\nWe'll notify the pharmacy the moment payment goes through.`,
+        );
+      } catch (err) {
+        console.error(`[WhatsAppBot] Failed to create checkout session for order ${order.id}: ${formatWhatsAppError(err)}`);
+        await this.reply(
+          session,
+          `Your order was saved, but something went wrong creating the payment link. Please contact support to complete payment.`,
+        );
+      }
       return;
     }
 
@@ -1011,6 +1094,25 @@ export class WhatsAppBotService {
         pendingOrderRequestId: undefined,
       };
       await this.reply(session, `Order cancelled.`);
+
+      // Only the shop whose quote was already chosen thinks they might be
+      // getting this order — nobody else was ever told anything about it.
+      if (request.chosenQuoteId) {
+        const chosenQuote = await AppDataSource.getRepository(MedicineShopQuote).findOne({
+          where: { id: request.chosenQuoteId },
+        });
+        const shop = chosenQuote
+          ? await AppDataSource.getRepository(MedicineShop).findOne({
+              where: { id: chosenQuote.shopId },
+            })
+          : null;
+        if (shop) {
+          await this.shopAlerts.sendShopMessage(
+            shop,
+            `The patient cancelled this order before paying — no need to prepare anything.`,
+          );
+        }
+      }
       return;
     }
 
@@ -1095,6 +1197,8 @@ export class WhatsAppBotService {
     request.status = PrescriptionUploadStatus.SENT_TO_PATIENT;
     request.chosenQuoteId = quote.id;
     await requestRepo.save(request);
+
+    await markSiblingQuotesNotSelected(request.id, quote.id, this.shopAlerts);
 
     session.conversationState = WhatsAppConversationState.AWAITING_ORDER_CONFIRMATION;
     session.flowVariables = {
@@ -1251,6 +1355,7 @@ export class WhatsAppBotService {
       QuoteSubmissionChannel.WHATSAPP,
       (recvTenantId, recvRequest, recvQuote) =>
         this.sendPatientReceipt(recvTenantId, recvRequest, recvQuote),
+      this.shopAlerts,
     );
 
     session.conversationState = WhatsAppConversationState.MAIN_MENU;

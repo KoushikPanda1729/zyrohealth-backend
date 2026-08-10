@@ -807,7 +807,7 @@ export class WhatsAppFlowEngineService {
         .join('\n');
     this.appendMessage(session, 'assistant', textLog);
     try {
-      const provider = await this.providerResolver.resolve(session.tenantId!);
+      const provider = await this.providerResolver.resolve(session.tenantId!, session.shopId);
       await provider.sendInteractive(
         session.phoneNumber,
         body,
@@ -825,7 +825,7 @@ export class WhatsAppFlowEngineService {
     if (!text) return;
     this.appendMessage(session, 'assistant', text);
     try {
-      const provider = await this.providerResolver.resolve(session.tenantId!);
+      const provider = await this.providerResolver.resolve(session.tenantId!, session.shopId);
       await provider.sendText(session.phoneNumber, text);
     } catch (err) {
       console.error(

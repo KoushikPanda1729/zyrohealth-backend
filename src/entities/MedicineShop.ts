@@ -56,4 +56,23 @@ export class MedicineShop extends BaseEntity {
     default: MedicineShopOwnershipType.THIRD_PARTY,
   })
   ownershipType!: MedicineShopOwnershipType;
+
+  // Independent WhatsApp Business presence (own provider account, own flow
+  // builder, own customer conversations) — a completely separate concern
+  // from whatsappLinked above (which is this shop replying to a TENANT's
+  // quote requests on the TENANT's number). Only a platform super admin
+  // can flip this — see platform.service.ts#setShopWhatsAppModuleEnabled.
+  @Column({ name: 'whatsapp_module_enabled', default: false })
+  whatsappModuleEnabled!: boolean;
+
+  @Column({ name: 'whatsapp_module_enabled_at', type: 'timestamptz', nullable: true })
+  whatsappModuleEnabledAt?: Date;
+
+  // The real phone number this shop's module actually runs on — set by the
+  // super admin, used purely for inbound-webhook routing. See
+  // whatsapp-webhook.controller.ts / shop-whatsapp-module.util.ts
+  // #resolveShopIdForNumber. Mirrors Tenant.whatsappFromNumber exactly.
+  @Column({ name: 'whatsapp_module_from_number', nullable: true })
+  @Index()
+  whatsappModuleFromNumber?: string;
 }

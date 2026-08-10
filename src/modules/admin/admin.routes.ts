@@ -166,6 +166,13 @@ router.patch(
     void ctrl.updateMedicineOrderStatus(req, res, next);
   },
 );
+router.post(
+  '/medicine-orders/:id/notify-shop',
+  requirePermission('medicine_orders.manage'),
+  (req, res, next) => {
+    void ctrl.notifyShopOrderReady(req, res, next);
+  },
+);
 router.get(
   '/whatsapp/sessions',
   requirePermission('whatsapp.view'),

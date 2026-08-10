@@ -46,6 +46,15 @@ export class WhatsAppFlow extends BaseEntity {
   @Column({ name: 'tenant_id', nullable: true })
   tenantId?: string;
 
+  // Set (alongside tenantId, which stays populated with the shop's parent
+  // tenant) when this flow belongs to a standalone shop's own independent
+  // WhatsApp module rather than the tenant's patient-facing bot — see
+  // shop-whatsapp-flow.util.ts. tenantId staying populated is deliberate:
+  // it's what the flow engine's existing tenantId-keyed lookups use, so
+  // nothing there needs to change to support shop-owned flows.
+  @Column({ name: 'shop_id', nullable: true })
+  shopId?: string;
+
   @Column()
   name!: string;
 

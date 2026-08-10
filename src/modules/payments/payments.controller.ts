@@ -1,13 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { PaymentsService } from './payments.service';
+import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
+import { IPaymentProvider } from '../../providers/payment/payment.provider.interface';
+import { PAYMENT_PROVIDER } from '../../config/container';
 import { success } from '../../utils/api-response';
 import { AppError } from '../../utils/app-error';
 import { InitiatePaymentDtoType } from './payments.dto';
 
 @injectable()
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly medicineOrderPaymentsService: MedicineOrderPaymentsService,
+    @inject(PAYMENT_PROVIDER) private readonly paymentProvider: IPaymentProvider,
+  ) {}
 
   initiatePayment = async (
     req: Request,
@@ -36,7 +43,12 @@ export class PaymentsController {
       if (typeof signature !== 'string') {
         throw AppError.unprocessable('Missing stripe-signature header');
       }
-      await this.paymentsService.handleWebhook(req.body as Buffer, signature);
+      // Verified once here, then handed to every consumer — each one
+      // no-ops on events it doesn't recognize as its own (see
+      // MedicineOrderPaymentsService.processWebhookEvent's metadata check).
+      const event = this.paymentProvider.verifyWebhook(req.body as Buffer, signature);
+      await this.paymentsService.processWebhookEvent(event);
+      await this.medicineOrderPaymentsService.processWebhookEvent(event);
       res.status(200).json({ received: true });
     } catch (err) {
       next(err);

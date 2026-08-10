@@ -33,6 +33,13 @@ export class WhatsAppSession extends BaseEntity {
   @Column({ name: 'tenant_id', nullable: true })
   tenantId?: string;
 
+  // Set (alongside tenantId — the shop's parent tenant, kept populated for
+  // the same reason as WhatsAppFlow.shopId above) when this conversation is
+  // with a standalone shop's own independent WhatsApp number, not the
+  // tenant's patient-facing one.
+  @Column({ name: 'shop_id', nullable: true })
+  shopId?: string;
+
   @Column({ name: 'phone_number' })
   @Index()
   phoneNumber!: string;

@@ -290,6 +290,75 @@ router.get('/payroll/records/:recordId/payslip.pdf', (req, res, next) => {
   void ctrl.downloadPayslip(req, res, next);
 });
 
+// ── WhatsApp — status/conversation viewing (of the shop-replies-to-
+// tenant-quote-requests relationship) open to any shop staff; resetting a
+// stuck conversation is owner-only. This is a DIFFERENT, simpler concern
+// than the WhatsApp Module block below. ────────────────────────────────
+router.get('/whatsapp/status', (req, res, next) => {
+  void ctrl.getMyWhatsAppStatus(req, res, next);
+});
+router.get('/whatsapp/session', (req, res, next) => {
+  void ctrl.getMyWhatsAppSession(req, res, next);
+});
+router.post('/whatsapp/session/reset', requireShopOwner, (req, res, next) => {
+  void ctrl.resetMyWhatsAppSession(req, res, next);
+});
+
+// ── WhatsApp Module — a standalone shop's OWN independent WhatsApp
+// Business presence (own provider account, own flow builder, own
+// customer conversations), only usable once a platform super admin has
+// enabled it for this shop (see platform.routes.ts). Owner-only in every
+// direction — this is credentials + a whole separate customer channel,
+// not day-to-day operational work to delegate. ─────────────────────────
+router.get('/whatsapp-module/status', requireShopOwner, (req, res, next) => {
+  void ctrl.getWhatsAppModuleStatus(req, res, next);
+});
+router.get('/whatsapp-module/config', requireShopOwner, (req, res, next) => {
+  void ctrl.getWhatsAppModuleConfig(req, res, next);
+});
+router.put('/whatsapp-module/config', requireShopOwner, (req, res, next) => {
+  void ctrl.updateWhatsAppModuleConfig(req, res, next);
+});
+router.get('/whatsapp-module/flows', requireShopOwner, (req, res, next) => {
+  void ctrl.listWhatsAppModuleFlows(req, res, next);
+});
+router.get('/whatsapp-module/flows/:flowId', requireShopOwner, (req, res, next) => {
+  void ctrl.getWhatsAppModuleFlow(req, res, next);
+});
+router.post('/whatsapp-module/flows', requireShopOwner, (req, res, next) => {
+  void ctrl.createWhatsAppModuleFlow(req, res, next);
+});
+router.post('/whatsapp-module/flows/generate', requireShopOwner, (req, res, next) => {
+  void ctrl.generateWhatsAppModuleFlow(req, res, next);
+});
+router.post('/whatsapp-module/flows/:flowId/generate', requireShopOwner, (req, res, next) => {
+  void ctrl.editWhatsAppModuleFlowWithAi(req, res, next);
+});
+router.patch('/whatsapp-module/flows/:flowId', requireShopOwner, (req, res, next) => {
+  void ctrl.updateWhatsAppModuleFlow(req, res, next);
+});
+router.patch('/whatsapp-module/flows/:flowId/activate', requireShopOwner, (req, res, next) => {
+  void ctrl.activateWhatsAppModuleFlow(req, res, next);
+});
+router.patch('/whatsapp-module/flows/:flowId/deactivate', requireShopOwner, (req, res, next) => {
+  void ctrl.deactivateWhatsAppModuleFlow(req, res, next);
+});
+router.delete('/whatsapp-module/flows/:flowId', requireShopOwner, (req, res, next) => {
+  void ctrl.deleteWhatsAppModuleFlow(req, res, next);
+});
+router.get('/whatsapp-module/sessions', requireShopOwner, (req, res, next) => {
+  void ctrl.listWhatsAppModuleSessions(req, res, next);
+});
+router.get('/whatsapp-module/sessions/:sessionId', requireShopOwner, (req, res, next) => {
+  void ctrl.getWhatsAppModuleSessionDetail(req, res, next);
+});
+router.post('/whatsapp-module/sessions/:sessionId/reply', requireShopOwner, (req, res, next) => {
+  void ctrl.replyToWhatsAppModuleSession(req, res, next);
+});
+router.post('/whatsapp-module/sessions/:sessionId/resume-bot', requireShopOwner, (req, res, next) => {
+  void ctrl.resumeWhatsAppModuleSessionBot(req, res, next);
+});
+
 router.get('/quote-requests', (req, res, next) => {
   void ctrl.listMyQuoteRequests(req, res, next);
 });
@@ -301,6 +370,20 @@ router.post('/quote-requests/:quoteId/decline', (req, res, next) => {
 });
 router.get('/quote-requests/:quoteId/receipt.pdf', (req, res, next) => {
   void ctrl.downloadQuoteReceipt(req, res, next);
+});
+
+// ── Orders — visible only once the tenant admin has relayed a paid order
+// to this shop (see AdminService.notifyShopOrderReady); any shop staff can
+// advance the delivery status, same open-to-everyone convention as
+// Billing/Requests above. ──────────────────────────────────────────────
+router.get('/orders', (req, res, next) => {
+  void ctrl.listMyOrders(req, res, next);
+});
+router.get('/orders/:orderId', (req, res, next) => {
+  void ctrl.getMyOrder(req, res, next);
+});
+router.patch('/orders/:orderId/status', (req, res, next) => {
+  void ctrl.updateMyOrderStatus(req, res, next);
 });
 
 export { router as shopRouter };

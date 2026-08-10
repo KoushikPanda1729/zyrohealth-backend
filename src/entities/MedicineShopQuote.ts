@@ -5,6 +5,10 @@ export enum MedicineShopQuoteStatus {
   PENDING = 'pending',
   SUBMITTED = 'submitted',
   DECLINED = 'declined',
+  // Distinct from DECLINED (the shop itself opted out): this quote was
+  // SUBMITTED, but a different shop's quote was chosen instead. Set by
+  // quote-processing.util.ts's markSiblingQuotesNotSelected.
+  NOT_SELECTED = 'not_selected',
 }
 
 export enum QuoteSubmissionChannel {

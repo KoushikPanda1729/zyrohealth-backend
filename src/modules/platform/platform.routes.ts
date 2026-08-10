@@ -48,6 +48,18 @@ router.get('/medicine-shops', canView, (req, res, next) => {
 router.post('/medicine-shops', canManage, (req, res, next) => {
   void ctrl.createStandaloneMedicineShop(req, res, next);
 });
+router.patch('/medicine-shops/:id/whatsapp-module', canManage, (req, res, next) => {
+  void ctrl.setMedicineShopWhatsAppModule(req, res, next);
+});
+router.get('/shop-payouts', canView, (req, res, next) => {
+  void ctrl.listShopPayoutSummaries(req, res, next);
+});
+router.get('/shop-payouts/:shopId', canView, (req, res, next) => {
+  void ctrl.listShopPayoutEntries(req, res, next);
+});
+router.post('/shop-payouts/:shopId/settle', canManage, (req, res, next) => {
+  void ctrl.settleShopPayouts(req, res, next);
+});
 router.post('/admins', canManage, (req, res, next) => {
   void ctrl.createTenantAdmin(req, res, next);
 });
