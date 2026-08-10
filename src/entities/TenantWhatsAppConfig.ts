@@ -4,6 +4,7 @@ import { BaseEntity } from './BaseEntity';
 export enum WhatsAppProviderType {
   TWILIO = 'twilio',
   META = 'meta',
+  GUPSHUP = 'gupshup',
 }
 
 // A tenant's own WhatsApp provider + credentials — when present, these
@@ -40,4 +41,20 @@ export class TenantWhatsAppConfig extends BaseEntity {
 
   @Column({ nullable: true, name: 'meta_api_version' })
   metaApiVersion?: string;
+
+  @Column({ nullable: true, name: 'gupshup_api_key' })
+  gupshupApiKey?: string;
+
+  @Column({ nullable: true, name: 'gupshup_source_number' })
+  gupshupSourceNumber?: string;
+
+  @Column({ nullable: true, name: 'gupshup_app_name' })
+  gupshupAppName?: string;
+
+  // Gupshup has no built-in webhook-signing mechanism (unlike Twilio's
+  // X-Twilio-Signature / Meta's X-Hub-Signature-256) — this is a
+  // self-chosen shared secret embedded in the callback URL you register
+  // with Gupshup, checked in whatsapp-webhook.controller.ts#receiveGupshup.
+  @Column({ nullable: true, name: 'gupshup_webhook_secret' })
+  gupshupWebhookSecret?: string;
 }

@@ -37,4 +37,16 @@ export class MedicineShopWhatsAppConfig extends BaseEntity {
 
   @Column({ nullable: true, name: 'meta_api_version' })
   metaApiVersion?: string;
+
+  @Column({ nullable: true, name: 'gupshup_api_key' })
+  gupshupApiKey?: string;
+
+  @Column({ nullable: true, name: 'gupshup_source_number' })
+  gupshupSourceNumber?: string;
+
+  @Column({ nullable: true, name: 'gupshup_app_name' })
+  gupshupAppName?: string;
+
+  @Column({ nullable: true, name: 'gupshup_webhook_secret' })
+  gupshupWebhookSecret?: string;
 }

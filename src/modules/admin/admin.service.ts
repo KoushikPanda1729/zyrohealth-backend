@@ -1789,6 +1789,10 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     metaApiVersion?: string;
     hasMetaAccessToken: boolean;
     hasMetaAppSecret: boolean;
+    gupshupSourceNumber?: string;
+    gupshupAppName?: string;
+    hasGupshupApiKey: boolean;
+    hasGupshupWebhookSecret: boolean;
   }> {
     const config = await AppDataSource.getRepository(
       TenantWhatsAppConfig,
@@ -1811,6 +1815,10 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
         metaApiVersion: env.META_WHATSAPP_API_VERSION || undefined,
         hasMetaAccessToken: Boolean(env.META_WHATSAPP_ACCESS_TOKEN),
         hasMetaAppSecret: Boolean(env.META_WHATSAPP_APP_SECRET),
+        gupshupSourceNumber: env.GUPSHUP_SOURCE_NUMBER || undefined,
+        gupshupAppName: env.GUPSHUP_APP_NAME || undefined,
+        hasGupshupApiKey: Boolean(env.GUPSHUP_API_KEY),
+        hasGupshupWebhookSecret: Boolean(env.GUPSHUP_WEBHOOK_SECRET),
       };
     }
 
@@ -1824,6 +1832,10 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       metaApiVersion: config.metaApiVersion,
       hasMetaAccessToken: Boolean(config.metaAccessToken),
       hasMetaAppSecret: Boolean(config.metaAppSecret),
+      gupshupSourceNumber: config.gupshupSourceNumber,
+      gupshupAppName: config.gupshupAppName,
+      hasGupshupApiKey: Boolean(config.gupshupApiKey),
+      hasGupshupWebhookSecret: Boolean(config.gupshupWebhookSecret),
     };
   }
 
@@ -1838,6 +1850,10 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       metaAccessToken?: string;
       metaAppSecret?: string;
       metaApiVersion?: string;
+      gupshupApiKey?: string;
+      gupshupSourceNumber?: string;
+      gupshupAppName?: string;
+      gupshupWebhookSecret?: string;
     },
   ): Promise<{ provider: WhatsAppProviderType }> {
     const repo = AppDataSource.getRepository(TenantWhatsAppConfig);
@@ -1894,6 +1910,30 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       !data.metaPhoneNumberId
     ) {
       throw AppError.badRequest('Meta Phone Number ID is required');
+    }
+
+    if (data.gupshupSourceNumber !== undefined)
+      config.gupshupSourceNumber = data.gupshupSourceNumber;
+    if (data.gupshupAppName !== undefined)
+      config.gupshupAppName = data.gupshupAppName;
+    if (data.gupshupApiKey) {
+      config.gupshupApiKey = encryptSecret(data.gupshupApiKey);
+    } else if (isNew && data.provider === WhatsAppProviderType.GUPSHUP) {
+      throw AppError.badRequest('Gupshup API Key is required');
+    }
+    if (data.gupshupWebhookSecret) {
+      config.gupshupWebhookSecret = encryptSecret(data.gupshupWebhookSecret);
+    } else if (isNew && data.provider === WhatsAppProviderType.GUPSHUP) {
+      throw AppError.badRequest(
+        'A webhook secret is required — Gupshup has no built-in signature verification, so this app-chosen value is what protects your callback URL',
+      );
+    }
+    if (
+      isNew &&
+      data.provider === WhatsAppProviderType.GUPSHUP &&
+      (!data.gupshupSourceNumber || !data.gupshupAppName)
+    ) {
+      throw AppError.badRequest('Gupshup Source Number and App Name are required');
     }
 
     const saved = await repo.save(config);

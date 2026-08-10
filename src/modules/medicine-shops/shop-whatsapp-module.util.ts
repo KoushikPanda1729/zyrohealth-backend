@@ -48,6 +48,21 @@ export async function resolveShopIdForNumber(toNumber?: string): Promise<string 
   return shop?.id;
 }
 
+// Gupshup equivalent of resolveShopIdForNumber — routes by Gupshup app name
+// instead of a receiving phone number, same reasoning as
+// resolveTenantIdForGupshupApp (permissions.util.ts).
+export async function resolveShopIdForGupshupApp(appName?: string): Promise<string | undefined> {
+  if (!appName) return undefined;
+  const config = await AppDataSource.getRepository(MedicineShopWhatsAppConfig).findOne({
+    where: { gupshupAppName: appName, provider: WhatsAppProviderType.GUPSHUP },
+  });
+  if (!config) return undefined;
+  const shop = await AppDataSource.getRepository(MedicineShop).findOne({
+    where: { id: config.shopId, whatsappModuleEnabled: true },
+  });
+  return shop?.id;
+}
+
 export async function getShopModuleStatus(
   shopId: string,
 ): Promise<{ enabled: boolean; enabledAt?: Date }> {
@@ -68,6 +83,10 @@ export async function getShopModuleConfig(shopId: string): Promise<{
   metaApiVersion?: string;
   hasMetaAccessToken: boolean;
   hasMetaAppSecret: boolean;
+  gupshupSourceNumber?: string;
+  gupshupAppName?: string;
+  hasGupshupApiKey: boolean;
+  hasGupshupWebhookSecret: boolean;
 }> {
   await requireEnabledShop(shopId);
   const config = await AppDataSource.getRepository(MedicineShopWhatsAppConfig).findOne({
@@ -80,6 +99,8 @@ export async function getShopModuleConfig(shopId: string): Promise<{
       hasTwilioAuthToken: false,
       hasMetaAccessToken: false,
       hasMetaAppSecret: false,
+      hasGupshupApiKey: false,
+      hasGupshupWebhookSecret: false,
     };
   }
   return {
@@ -92,6 +113,10 @@ export async function getShopModuleConfig(shopId: string): Promise<{
     metaApiVersion: config.metaApiVersion,
     hasMetaAccessToken: Boolean(config.metaAccessToken),
     hasMetaAppSecret: Boolean(config.metaAppSecret),
+    gupshupSourceNumber: config.gupshupSourceNumber,
+    gupshupAppName: config.gupshupAppName,
+    hasGupshupApiKey: Boolean(config.gupshupApiKey),
+    hasGupshupWebhookSecret: Boolean(config.gupshupWebhookSecret),
   };
 }
 
@@ -106,6 +131,10 @@ export async function updateShopModuleConfig(
     metaAccessToken?: string;
     metaAppSecret?: string;
     metaApiVersion?: string;
+    gupshupApiKey?: string;
+    gupshupSourceNumber?: string;
+    gupshupAppName?: string;
+    gupshupWebhookSecret?: string;
   },
 ): Promise<{ provider: WhatsAppProviderType }> {
   await requireEnabledShop(shopId);
@@ -147,6 +176,26 @@ export async function updateShopModuleConfig(
   }
   if (isNew && data.provider === WhatsAppProviderType.META && !data.metaPhoneNumberId) {
     throw AppError.badRequest('Meta Phone Number ID is required');
+  }
+
+  if (data.gupshupSourceNumber !== undefined) config.gupshupSourceNumber = data.gupshupSourceNumber;
+  if (data.gupshupAppName !== undefined) config.gupshupAppName = data.gupshupAppName;
+  if (data.gupshupApiKey) {
+    config.gupshupApiKey = encryptSecret(data.gupshupApiKey);
+  } else if (isNew && data.provider === WhatsAppProviderType.GUPSHUP) {
+    throw AppError.badRequest('Gupshup API Key is required');
+  }
+  if (data.gupshupWebhookSecret) {
+    config.gupshupWebhookSecret = encryptSecret(data.gupshupWebhookSecret);
+  } else if (isNew && data.provider === WhatsAppProviderType.GUPSHUP) {
+    throw AppError.badRequest('A webhook secret is required — Gupshup has no built-in signature verification, so this app-chosen value is what protects your callback URL');
+  }
+  if (
+    isNew &&
+    data.provider === WhatsAppProviderType.GUPSHUP &&
+    (!data.gupshupSourceNumber || !data.gupshupAppName)
+  ) {
+    throw AppError.badRequest('Gupshup Source Number and App Name are required');
   }
 
   const saved = await repo.save(config);

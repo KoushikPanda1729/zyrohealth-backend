@@ -104,6 +104,15 @@ export function createApp(): Express {
       void whatsappWebhookCtrl.receiveTwilio(req, res, next);
     },
   );
+  // Gupshup has no HMAC webhook signing — the :secret path segment is a
+  // self-chosen shared secret checked inside receiveGupshup.
+  app.post(
+    '/api/whatsapp/webhook/gupshup/:secret',
+    express.json(),
+    (req: Request, res: Response, next: NextFunction) => {
+      void whatsappWebhookCtrl.receiveGupshup(req, res, next);
+    },
+  );
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));

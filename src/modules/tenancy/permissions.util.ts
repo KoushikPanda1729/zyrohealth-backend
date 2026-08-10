@@ -2,6 +2,7 @@ import { AppDataSource } from '../../config/database';
 import { Tenant } from '../../entities/Tenant';
 import { TenantPermission } from '../../entities/TenantPermission';
 import { RolePermission } from '../../entities/RolePermission';
+import { TenantWhatsAppConfig, WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
 
 // The pre-multi-tenancy app becomes this tenant. Used to backfill any
 // signup path that doesn't yet pass an explicit tenantId (today's app has
@@ -54,6 +55,24 @@ export async function resolveTenantIdForNumber(
       where: { whatsappFromNumber: toNumber },
     });
     if (tenant) return tenant.id;
+  }
+  const defaultId = await getDefaultTenantId();
+  if (!defaultId) throw new Error('No default tenant configured');
+  return defaultId;
+}
+
+// Gupshup's inbound webhook payload has no equivalent of Twilio's `To` /
+// Meta's `metadata.display_phone_number` — the one stable identifier it
+// does carry is the Gupshup app name the message arrived through, so
+// routing keys off that instead of a receiving phone number.
+export async function resolveTenantIdForGupshupApp(
+  appName?: string,
+): Promise<string> {
+  if (appName) {
+    const config = await AppDataSource.getRepository(TenantWhatsAppConfig).findOne({
+      where: { gupshupAppName: appName, provider: WhatsAppProviderType.GUPSHUP },
+    });
+    if (config) return config.tenantId;
   }
   const defaultId = await getDefaultTenantId();
   if (!defaultId) throw new Error('No default tenant configured');

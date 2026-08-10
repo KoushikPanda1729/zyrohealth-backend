@@ -50,6 +50,22 @@ export async function downloadMetaMedia(
   };
 }
 
+// Gupshup's inbound image payload carries a direct `url` for the media
+// (payload.payload.url) rather than Twilio/Meta's auth-then-fetch dance —
+// this still passes the account's apikey header since Gupshup media links
+// are typically account-scoped. Unverified against a live Gupshup account;
+// adjust if a real payload shows otherwise.
+export async function downloadGupshupMedia(
+  mediaUrl: string,
+  apiKey: string,
+): Promise<Buffer> {
+  const res = await fetch(mediaUrl, { headers: { apikey: apiKey } });
+  if (!res.ok) {
+    throw new Error(`Failed to download Gupshup media: HTTP ${res.status}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
 export function mediaStorageKey(tenantId: string, mimeType: string): string {
   const ext = mimeType.split('/')[1]?.split(';')[0] ?? 'bin';
   return `whatsapp-media/${tenantId}/${Date.now()}.${ext}`;

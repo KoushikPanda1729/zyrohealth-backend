@@ -45,6 +45,10 @@ const envSchema = z.object({
   META_WHATSAPP_API_VERSION: z.string().default('v21.0'),
   META_WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().default(''),
   META_WHATSAPP_APP_SECRET: z.string().default(''),
+  GUPSHUP_API_KEY: z.string().default(''),
+  GUPSHUP_SOURCE_NUMBER: z.string().default(''),
+  GUPSHUP_APP_NAME: z.string().default(''),
+  GUPSHUP_WEBHOOK_SECRET: z.string().default(''),
   AGENT_SERVICE_URL: z.string().optional(),
   AGENT_SERVICE_TOKEN: z.string().optional(),
   LIVEKIT_TOKEN_TTL_MIN: z

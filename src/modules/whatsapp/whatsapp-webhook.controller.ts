@@ -6,15 +6,31 @@ import { env } from '../../config/env';
 import { WhatsAppBotService } from './whatsapp-bot.service';
 import { WhatsAppProviderResolver } from './whatsapp-provider-resolver.service';
 import { formatWhatsAppError } from '../../providers/whatsapp/format-whatsapp-error';
-import { resolveTenantIdForNumber } from '../tenancy/permissions.util';
-import { resolveShopIdForNumber } from '../medicine-shops/shop-whatsapp-module.util';
+import { resolveTenantIdForNumber, resolveTenantIdForGupshupApp } from '../tenancy/permissions.util';
+import {
+  resolveShopIdForNumber,
+  resolveShopIdForGupshupApp,
+} from '../medicine-shops/shop-whatsapp-module.util';
 import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
 import { STORAGE_PROVIDER } from '../../config/container';
 import {
   downloadTwilioMedia,
   downloadMetaMedia,
+  downloadGupshupMedia,
   mediaStorageKey,
 } from './whatsapp-media.util';
+
+interface GupshupWebhookPayload {
+  app?: string;
+  type?: string;
+  payload?: {
+    id?: string;
+    source?: string;
+    type?: string;
+    payload?: { text?: string; url?: string; contentType?: string };
+    sender?: { phone?: string };
+  };
+}
 
 interface MetaWebhookPayload {
   entry?: Array<{
@@ -231,6 +247,83 @@ export class WhatsAppWebhookController {
             `[WhatsApp Webhook] Failed processing inbound Twilio message: ${formatWhatsAppError(err)}`,
           );
         }
+      }
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // Gupshup has no HMAC webhook-signing mechanism (unlike Twilio/Meta), so
+  // the URL itself carries a shared secret you choose when registering the
+  // callback URL in Gupshup's console — compared in constant time against
+  // the stored (encrypted) value, resolved via the Gupshup app name since
+  // Gupshup's inbound payload carries no receiving-phone-number field.
+  receiveGupshup = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { secret } = req.params as { secret: string };
+      const body = req.body as GupshupWebhookPayload;
+
+      if (body.type !== 'message' || !body.payload) {
+        res.sendStatus(200);
+        return;
+      }
+
+      const shopId = await resolveShopIdForGupshupApp(body.app);
+      const tenantId = await resolveTenantIdForGupshupApp(body.app);
+      const { gupshupWebhookSecret } =
+        await this.providerResolver.getWebhookSecrets(tenantId, shopId);
+      const expectedSecret = gupshupWebhookSecret || env.GUPSHUP_WEBHOOK_SECRET;
+
+      if (expectedSecret) {
+        const expectedBuf = Buffer.from(expectedSecret);
+        const actualBuf = Buffer.from(secret ?? '');
+        const valid =
+          expectedBuf.length === actualBuf.length &&
+          crypto.timingSafeEqual(expectedBuf, actualBuf);
+        if (!valid) {
+          res.sendStatus(403);
+          return;
+        }
+      } else {
+        console.warn(
+          '[WhatsApp Webhook] No Gupshup webhook secret configured (tenant/shop or global) — skipping validation (unsafe for production).',
+        );
+      }
+
+      res.sendStatus(200);
+
+      const message = body.payload;
+      const phoneRaw = message.sender?.phone || message.source;
+      if (!phoneRaw) return;
+      const phone = phoneRaw.startsWith('+') ? phoneRaw : `+${phoneRaw}`;
+
+      try {
+        let media: { url: string; mimeType: string } | undefined;
+        if (message.type === 'image' && message.payload?.url) {
+          const { gupshupApiKey } = await this.providerResolver.getMediaCredentials(tenantId, shopId);
+          const mimeType = message.payload.contentType || 'image/jpeg';
+          const buffer = await downloadGupshupMedia(message.payload.url, gupshupApiKey);
+          const url = await this.storage.upload(
+            mediaStorageKey(tenantId, mimeType),
+            buffer,
+            mimeType,
+          );
+          media = { url, mimeType };
+        }
+        const text = message.type === 'text' ? (message.payload?.text ?? '') : '';
+        if (shopId) {
+          await this.bot.processInboundShopModuleMessage(shopId, tenantId, phone, text, media);
+        } else {
+          await this.bot.processInboundMessage(tenantId, phone, text, media);
+        }
+      } catch (err) {
+        console.error(
+          `[WhatsApp Webhook] Failed processing inbound Gupshup message: ${formatWhatsAppError(err)}`,
+        );
       }
     } catch (err) {
       next(err);

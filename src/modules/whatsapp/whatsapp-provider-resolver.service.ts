@@ -9,6 +9,7 @@ import { MedicineShop } from '../../entities/MedicineShop';
 import { IWhatsAppProvider } from '../../providers/whatsapp/whatsapp.provider.interface';
 import { TwilioWhatsAppProvider } from '../../providers/whatsapp/twilio-whatsapp.provider';
 import { MetaWhatsAppProvider } from '../../providers/whatsapp/meta-whatsapp.provider';
+import { GupshupWhatsAppProvider } from '../../providers/whatsapp/gupshup-whatsapp.provider';
 import { WHATSAPP_PROVIDER } from '../../config/container';
 import { decryptSecret } from '../../utils/crypto.util';
 import { env } from '../../config/env';
@@ -22,6 +23,10 @@ type ProviderCreds = {
   metaAccessToken?: string;
   metaAppSecret?: string;
   metaApiVersion?: string;
+  gupshupApiKey?: string;
+  gupshupSourceNumber?: string;
+  gupshupAppName?: string;
+  gupshupWebhookSecret?: string;
 };
 
 function buildProviderFromCreds(creds: ProviderCreds): IWhatsAppProvider | null {
@@ -46,6 +51,18 @@ function buildProviderFromCreds(creds: ProviderCreds): IWhatsAppProvider | null 
       phoneNumberId: creds.metaPhoneNumberId,
       accessToken: decryptSecret(creds.metaAccessToken),
       apiVersion: creds.metaApiVersion,
+    });
+  }
+  if (
+    creds.provider === WhatsAppProviderType.GUPSHUP &&
+    creds.gupshupApiKey &&
+    creds.gupshupSourceNumber &&
+    creds.gupshupAppName
+  ) {
+    return new GupshupWhatsAppProvider({
+      apiKey: decryptSecret(creds.gupshupApiKey),
+      sourceNumber: creds.gupshupSourceNumber,
+      appName: creds.gupshupAppName,
     });
   }
   return null;
@@ -112,16 +129,19 @@ export class WhatsAppProviderResolver {
   async getWebhookSecrets(
     tenantId: string,
     shopId?: string,
-  ): Promise<{ twilioAuthToken?: string; metaAppSecret?: string }> {
+  ): Promise<{ twilioAuthToken?: string; metaAppSecret?: string; gupshupWebhookSecret?: string }> {
     if (shopId) {
       const shopConfig = await this.getShopConfig(shopId);
-      if (shopConfig?.twilioAuthToken || shopConfig?.metaAppSecret) {
+      if (shopConfig?.twilioAuthToken || shopConfig?.metaAppSecret || shopConfig?.gupshupWebhookSecret) {
         return {
           twilioAuthToken: shopConfig.twilioAuthToken
             ? decryptSecret(shopConfig.twilioAuthToken)
             : undefined,
           metaAppSecret: shopConfig.metaAppSecret
             ? decryptSecret(shopConfig.metaAppSecret)
+            : undefined,
+          gupshupWebhookSecret: shopConfig.gupshupWebhookSecret
+            ? decryptSecret(shopConfig.gupshupWebhookSecret)
             : undefined,
         };
       }
@@ -136,6 +156,9 @@ export class WhatsAppProviderResolver {
       metaAppSecret: config.metaAppSecret
         ? decryptSecret(config.metaAppSecret)
         : undefined,
+      gupshupWebhookSecret: config.gupshupWebhookSecret
+        ? decryptSecret(config.gupshupWebhookSecret)
+        : undefined,
     };
   }
 
@@ -148,10 +171,11 @@ export class WhatsAppProviderResolver {
     twilioAuthToken: string;
     metaAccessToken: string;
     metaApiVersion: string;
+    gupshupApiKey: string;
   }> {
     if (shopId) {
       const shopConfig = await this.getShopConfig(shopId);
-      if (shopConfig?.twilioAccountSid || shopConfig?.metaAccessToken) {
+      if (shopConfig?.twilioAccountSid || shopConfig?.metaAccessToken || shopConfig?.gupshupApiKey) {
         return {
           twilioAccountSid: shopConfig.twilioAccountSid || env.TWILIO_ACCOUNT_SID,
           twilioAuthToken: shopConfig.twilioAuthToken
@@ -161,6 +185,9 @@ export class WhatsAppProviderResolver {
             ? decryptSecret(shopConfig.metaAccessToken)
             : env.META_WHATSAPP_ACCESS_TOKEN,
           metaApiVersion: shopConfig.metaApiVersion || env.META_WHATSAPP_API_VERSION,
+          gupshupApiKey: shopConfig.gupshupApiKey
+            ? decryptSecret(shopConfig.gupshupApiKey)
+            : env.GUPSHUP_API_KEY,
         };
       }
     }
@@ -175,6 +202,9 @@ export class WhatsAppProviderResolver {
         ? decryptSecret(config.metaAccessToken)
         : env.META_WHATSAPP_ACCESS_TOKEN,
       metaApiVersion: config?.metaApiVersion || env.META_WHATSAPP_API_VERSION,
+      gupshupApiKey: config?.gupshupApiKey
+        ? decryptSecret(config.gupshupApiKey)
+        : env.GUPSHUP_API_KEY,
     };
   }
 }
