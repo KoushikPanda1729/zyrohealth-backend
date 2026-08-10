@@ -1,8 +1,9 @@
 import { rateLimit } from 'express-rate-limit';
 
+// TEMP: raised for load testing — revert to 300 before merging back to normal use.
 export const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  limit: 300,
+  limit: 1_000_000,
   standardHeaders: true,
   legacyHeaders: false,
 });
