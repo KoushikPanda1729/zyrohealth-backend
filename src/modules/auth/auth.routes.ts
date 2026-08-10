@@ -4,16 +4,17 @@ import { AuthController } from './auth.controller';
 import { verifyToken } from '../../middleware/verifyToken.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { uploadMiddleware } from '../../middleware/upload.middleware';
+import { authLimiter } from '../../middleware/rateLimit.middleware';
 import { SendOtpDto, VerifyOtpDto } from './auth.dto';
 
 const router = Router();
 const ctrl = container.resolve(AuthController);
 
-router.post('/send-otp', validate(SendOtpDto), (req, res, next) => {
+router.post('/send-otp', authLimiter, validate(SendOtpDto), (req, res, next) => {
   void ctrl.sendOtp(req, res, next);
 });
 
-router.post('/verify-otp', validate(VerifyOtpDto), (req, res, next) => {
+router.post('/verify-otp', authLimiter, validate(VerifyOtpDto), (req, res, next) => {
   void ctrl.verifyOtp(req, res, next);
 });
 
@@ -51,10 +52,10 @@ router.post('/refresh', (req, res, next) => {
 });
 
 // Admin email+password auth
-router.post('/admin/register', (req, res, next) => {
+router.post('/admin/register', authLimiter, (req, res, next) => {
   void ctrl.adminRegister(req, res, next);
 });
-router.post('/admin/login', (req, res, next) => {
+router.post('/admin/login', authLimiter, (req, res, next) => {
   void ctrl.adminLogin(req, res, next);
 });
 

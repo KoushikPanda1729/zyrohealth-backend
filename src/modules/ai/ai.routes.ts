@@ -6,6 +6,7 @@ import { attachRole } from '../../middleware/attachRole.middleware';
 import { requireRole } from '../../middleware/requireRole.middleware';
 import { validate } from '../../middleware/validate.middleware';
 import { uploadMiddleware } from '../../middleware/upload.middleware';
+import { aiLimiter } from '../../middleware/rateLimit.middleware';
 import { SendAiMessageDto } from './ai.dto';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.post('/session', (req, res, next) => {
 
 router.post(
   '/session/:id/message',
+  aiLimiter,
   uploadMiddleware.single('image'),
   validate(SendAiMessageDto),
   (req, res, next) => {

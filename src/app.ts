@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { env } from './config/env';
 import { errorMiddleware } from './middleware/error.middleware';
+import { globalLimiter } from './middleware/rateLimit.middleware';
 
 import { authRouter } from './modules/auth/auth.routes';
 import { patientsRouter } from './modules/patients/patients.routes';
@@ -56,6 +57,7 @@ export function createApp(): Express {
       credentials: true,
     }),
   );
+  app.use(globalLimiter);
 
   // Stripe webhook MUST receive raw body — mount BEFORE express.json()
   const paymentsCtrl = container.resolve(PaymentsController);
