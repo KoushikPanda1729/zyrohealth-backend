@@ -1962,7 +1962,32 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     },
   ): Promise<MedicineShop> {
     const repo = AppDataSource.getRepository(MedicineShop);
-    return repo.save(repo.create({ tenantId, ...data }));
+    const shop = await repo.save(repo.create({ tenantId, ...data }));
+
+    // A third-party vendor being onboarded genuinely needs its own real
+    // login, invited separately once its actual owner is known. An
+    // in-house shop is different — it's the tenant's own pharmacy, so
+    // requiring a manual "invite yourself" step before the admin can even
+    // open its full view is just friction. Provision that login now.
+    // Falls back to a "+shop" alias when contactEmail collides with an
+    // existing account (commonly the admin's own email, since the same
+    // person usually runs both) — mail still reaches the same inbox.
+    if (data.ownershipType === MedicineShopOwnershipType.IN_HOUSE && data.contactEmail) {
+      const userRepo = AppDataSource.getRepository(User);
+      let loginEmail = data.contactEmail;
+      if (await userRepo.findOne({ where: { email: loginEmail } })) {
+        const [local, domain] = data.contactEmail.split('@');
+        loginEmail = `${local}+shop@${domain}`;
+      }
+      if (!(await userRepo.findOne({ where: { email: loginEmail } }))) {
+        await this.inviteMedicineShopUser(tenantId, shop.id, {
+          email: loginEmail,
+          fullName: data.name,
+        });
+      }
+    }
+
+    return shop;
   }
 
   async updateMedicineShop(
