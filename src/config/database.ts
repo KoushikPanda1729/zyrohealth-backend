@@ -64,6 +64,7 @@ export const AppDataSource = new DataSource({
   username: env.DB_USER,
   password: env.DB_PASSWORD,
   database: env.DB_NAME,
+  poolSize: 10,
   synchronize: false,
   logging: false,
   entities: [

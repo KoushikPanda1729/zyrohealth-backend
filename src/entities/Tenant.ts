@@ -1,10 +1,17 @@
-import { Entity, Column } from 'typeorm';
+import { Entity, Column, Index } from 'typeorm';
 import { BaseEntity } from './BaseEntity';
 
 @Entity('tenants')
 export class Tenant extends BaseEntity {
   @Column()
   name!: string;
+
+  // Enables <subdomain>.zyrohealthai.com as this tenant's own admin portal
+  // (see auth.service.ts#adminLogin). Nullable — older tenants may not have
+  // one set yet; unset means this tenant has no dedicated subdomain portal.
+  @Column({ type: 'varchar', nullable: true, length: 63 })
+  @Index({ unique: true, where: '"subdomain" IS NOT NULL' })
+  subdomain?: string;
 
   @Column({ nullable: true, name: 'contact_email' })
   contactEmail?: string;

@@ -68,6 +68,10 @@ const envSchema = z.object({
   // links. There's no email-sending provider wired up yet, so the raw link
   // is shown to whoever creates the invite to copy and share manually.
   ADMIN_PANEL_URL: z.string().default('http://localhost:3000'),
+  // Root domain tenant admin portals live under (<subdomain>.<this>). Empty
+  // in local dev — subdomain-based CORS/tenant-portal checks are simply
+  // skipped when unset, since there's no wildcard DNS/cert locally.
+  TENANT_ROOT_DOMAIN: z.string().default(''),
   // Patient-facing web app + Play Store listing — sent to a WhatsApp sender
   // who has no ZyroHealth account yet, so "please sign up first" is an
   // actual tappable link instead of a dead end. PATIENT_PLAYSTORE_URL is

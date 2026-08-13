@@ -15,6 +15,10 @@ import {
   MedicineShopPayoutStatus,
 } from '../../entities/MedicineShopPayout';
 import { AppError } from '../../utils/app-error';
+import {
+  generateUniqueSubdomain,
+  isValidSubdomain,
+} from '../../utils/subdomain.util';
 import { AuthService } from '../auth/auth.service';
 
 @injectable()
@@ -70,6 +74,7 @@ export class PlatformService {
     name: string;
     contactEmail?: string;
     whatsappFromNumber?: string;
+    subdomain?: string;
     moduleKeys: string[];
     adminEmail: string;
     adminFullName: string;
@@ -83,11 +88,26 @@ export class PlatformService {
     if (existingUser) throw AppError.conflict('Email already in use');
 
     const tenantRepo = AppDataSource.getRepository(Tenant);
+    let subdomain = data.subdomain?.trim().toLowerCase();
+    if (subdomain) {
+      if (!isValidSubdomain(subdomain)) {
+        throw AppError.badRequest(
+          'subdomain must be lowercase letters, numbers, and hyphens only, and not a reserved name',
+        );
+      }
+      if (await tenantRepo.exists({ where: { subdomain } })) {
+        throw AppError.conflict('subdomain is already taken');
+      }
+    } else {
+      subdomain = await generateUniqueSubdomain(data.name);
+    }
+
     const tenant = await tenantRepo.save(
       tenantRepo.create({
         name: data.name,
         contactEmail: data.contactEmail,
         whatsappFromNumber: data.whatsappFromNumber,
+        subdomain,
         isActive: true,
       }),
     );

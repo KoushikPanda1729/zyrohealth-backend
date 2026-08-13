@@ -265,8 +265,13 @@ export class AuthController {
       };
       if (!email) throw AppError.badRequest('Email is required');
       if (!password) throw AppError.badRequest('Password is required');
+      // Set by the admin frontend to the hostname it's actually being
+      // viewed on (window.location.host) — the request itself always hits
+      // api.zyrohealthai.com regardless of which tenant subdomain the user
+      // is on, so that context would otherwise be lost.
+      const portalHost = req.get('x-portal-host');
       const { user, accessToken, refreshToken } =
-        await this.authService.adminLogin(email, password);
+        await this.authService.adminLogin(email, password, portalHost);
       res
         .status(200)
         .json(

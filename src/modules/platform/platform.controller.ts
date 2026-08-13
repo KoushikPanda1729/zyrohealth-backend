@@ -58,6 +58,7 @@ export class PlatformController {
         name,
         contactEmail,
         whatsappFromNumber,
+        subdomain,
         moduleKeys,
         adminEmail,
         adminFullName,
@@ -65,6 +66,7 @@ export class PlatformController {
         name: string;
         contactEmail?: string;
         whatsappFromNumber?: string;
+        subdomain?: string;
         moduleKeys?: string[];
         adminEmail: string;
         adminFullName: string;
@@ -78,6 +80,7 @@ export class PlatformController {
         name,
         contactEmail,
         whatsappFromNumber,
+        subdomain,
         moduleKeys: moduleKeys ?? [],
         adminEmail,
         adminFullName,

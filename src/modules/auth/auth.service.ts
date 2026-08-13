@@ -18,10 +18,28 @@ import { DoctorProfile } from '../../entities/DoctorProfile';
 import { OtpCode } from '../../entities/OtpCode';
 import { RefreshToken } from '../../entities/RefreshToken';
 import { InviteToken } from '../../entities/InviteToken';
+import { Tenant } from '../../entities/Tenant';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/app-error';
 import { generateAndStoreOtp } from '../../utils/otp.util';
 import { getDefaultTenantId } from '../tenancy/permissions.util';
+import { RESERVED_SUBDOMAINS } from '../../utils/subdomain.util';
+
+// portalHost is the browser's actual Host header (e.g.
+// "apollo-clinic.zyrohealthai.com"), sent explicitly by the frontend via
+// X-Portal-Host — see auth.controller.ts#adminLogin for why the request's
+// own hostname can't be used (it always targets api.zyrohealthai.com).
+function extractTenantSubdomain(portalHost: string | undefined): string | null {
+  if (!portalHost || !env.TENANT_ROOT_DOMAIN) return null;
+  const host = portalHost.split(':')[0].toLowerCase();
+  const suffix = `.${env.TENANT_ROOT_DOMAIN.toLowerCase()}`;
+  if (!host.endsWith(suffix)) return null;
+  const subdomain = host.slice(0, -suffix.length);
+  if (!subdomain || subdomain.includes('.') || RESERVED_SUBDOMAINS.has(subdomain)) {
+    return null;
+  }
+  return subdomain;
+}
 
 @injectable()
 export class AuthService {
@@ -387,6 +405,7 @@ export class AuthService {
   async adminLogin(
     email: string,
     password: string,
+    portalHost?: string,
   ): Promise<{ user: User; accessToken: string; refreshToken: string }> {
     const userRepo = AppDataSource.getRepository(User);
 
@@ -411,6 +430,23 @@ export class AuthService {
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw AppError.unauthorized('Invalid email or password');
+
+    // Checked only after credentials pass, so a wrong-portal attempt never
+    // reveals anything an invalid-password attempt wouldn't. Tenant-less
+    // users (super_admin) skip this entirely and can log in from any
+    // portal or the generic admin domain.
+    const subdomain = extractTenantSubdomain(portalHost);
+    if (subdomain) {
+      const tenant = await AppDataSource.getRepository(Tenant).findOne({
+        where: { subdomain },
+      });
+      if (!tenant) throw AppError.notFound('This portal does not exist');
+      if (user.tenantId && user.tenantId !== tenant.id) {
+        throw AppError.forbidden(
+          'This account does not belong to this portal',
+        );
+      }
+    }
 
     const { accessToken, refreshToken } = await this.issueTokens(user);
     return { user, accessToken, refreshToken };

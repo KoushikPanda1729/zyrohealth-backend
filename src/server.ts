@@ -38,6 +38,20 @@ async function bootstrap(): Promise<void> {
   process.on('SIGINT', () => {
     void shutdown();
   });
+
+  // Without these, an unhandled error anywhere outside Express's own request
+  // handling (e.g. a stray promise in a background job) crashes the whole
+  // process with no chance to log context. Log and exit so Docker's
+  // `restart: unless-stopped` brings it back up, instead of the process
+  // dying silently or hanging in a broken state.
+  process.on('uncaughtException', (err: unknown) => {
+    process.stderr.write(`uncaughtException: ${String(err)}\n`);
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason: unknown) => {
+    process.stderr.write(`unhandledRejection: ${String(reason)}\n`);
+    process.exit(1);
+  });
 }
 
 void bootstrap().catch((err: unknown) => {
