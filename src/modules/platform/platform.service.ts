@@ -323,9 +323,40 @@ export class PlatformService {
       const keySet = new Set(moduleKeys);
       const rpRepo = AppDataSource.getRepository(RolePermission);
       const rolePerms = await rpRepo.find({ where: { roleId: In(roleIds) } });
+
+      // Custom roles are a deliberately curated subset — shrinking the
+      // tenant's entitlements prunes them here, but growing entitlements
+      // should NOT silently hand a limited role new access it was never
+      // given. The seeded "Admin" role is different: it's meant to always
+      // mirror the tenant's full entitlement set exactly (see createTenant),
+      // so it's kept in sync in both directions, not just pruned.
       const toRemove = rolePerms.filter((rp) => !keySet.has(rp.permissionKey));
       if (toRemove.length > 0) {
         await rpRepo.delete({ id: In(toRemove.map((rp) => rp.id)) });
+      }
+
+      const systemRoleIds = new Set(
+        roles.filter((r) => r.isSystem).map((r) => r.id),
+      );
+      const grantedBySystemRole = new Map<string, Set<string>>();
+      for (const rp of rolePerms) {
+        if (!systemRoleIds.has(rp.roleId)) continue;
+        if (!grantedBySystemRole.has(rp.roleId)) {
+          grantedBySystemRole.set(rp.roleId, new Set());
+        }
+        grantedBySystemRole.get(rp.roleId)!.add(rp.permissionKey);
+      }
+      const toAdd: RolePermission[] = [];
+      for (const roleId of systemRoleIds) {
+        const alreadyGranted = grantedBySystemRole.get(roleId) ?? new Set();
+        for (const key of moduleKeys) {
+          if (!alreadyGranted.has(key)) {
+            toAdd.push(rpRepo.create({ roleId, permissionKey: key }));
+          }
+        }
+      }
+      if (toAdd.length > 0) {
+        await rpRepo.save(toAdd);
       }
     }
 
