@@ -40,11 +40,14 @@ import { container } from './config/container';
 export function createApp(): Express {
   const app = express();
 
-  // Trust X-Forwarded-Proto/For from reverse proxies (ngrok in dev, load
-  // balancers in prod) — without this, req.protocol always reports 'http'
-  // even when the real client connected over https, which breaks Twilio's
-  // webhook signature validation (it signs the actual https:// URL).
-  app.set('trust proxy', true);
+  // Trust exactly one hop (Nginx, the only reverse proxy in front of this
+  // app) so req.protocol/req.ip reflect the real client — needed for
+  // Twilio's webhook signature validation (see above) and for
+  // rate-limiting to key on the real client IP rather than Nginx's.
+  // `true` (trust the whole chain unconditionally) lets a client spoof
+  // X-Forwarded-For to fake their IP and bypass IP-based rate limits
+  // entirely — express-rate-limit refuses to run under that setting.
+  app.set('trust proxy', 1);
 
   app.use(helmet());
   const allowedOrigins = env.SOCKET_CORS_ORIGIN.split(',').map((o) => o.trim());
