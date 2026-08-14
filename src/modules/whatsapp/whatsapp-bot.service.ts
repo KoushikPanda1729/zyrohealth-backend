@@ -6,11 +6,7 @@ import {
   WhatsAppMessageEvent,
 } from '../../entities/WhatsAppSession';
 import { User } from '../../entities/User';
-import {
-  MedicineOrder,
-  MedicineOrderStatus,
-  OrderedMedicineItem,
-} from '../../entities/MedicineOrder';
+import { MedicineOrder, MedicineOrderPaymentMethod } from '../../entities/MedicineOrder';
 import { MedicineShop } from '../../entities/MedicineShop';
 import {
   PrescriptionUploadRequest,
@@ -37,9 +33,8 @@ import {
   declineShopQuote,
   markSiblingQuotesNotSelected,
 } from '../medicine-shops/quote-processing.util';
-import { decrementStockForOrder } from '../medicine-shops/catalog.util';
-import { MedicineShopCatalogItem } from '../../entities/MedicineShopCatalogItem';
 import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
+import { createOrderFromQuote as createOrderFromQuoteUtil } from '../medicine-shops/medicine-order.util';
 import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
 import { env } from '../../config/env';
 
@@ -211,6 +206,7 @@ export class WhatsAppBotService {
         session,
         text,
         activeFlow,
+        media,
       );
       if (result === 'ended') {
         // Flow reached its `end` node this turn — hand back to the main menu
@@ -367,7 +363,7 @@ export class WhatsAppBotService {
         session.flowNodeId = null;
         session.flowVariables = {};
       }
-      const result = await this.flowEngine.processInbound(session, text, activeFlow);
+      const result = await this.flowEngine.processInbound(session, text, activeFlow, media);
       if (result === 'ended') {
         session.activeFlowId = null;
         session.flowNodeId = null;
@@ -895,105 +891,28 @@ export class WhatsAppBotService {
     await sessionRepo.save(session);
   }
 
+  // Thin wrapper — the real logic lives in medicine-order.util.ts's
+  // createOrderFromQuote (plain function) so the flow engine's app-channel
+  // executeOrderPayment node can create the exact same real MedicineOrder,
+  // without WhatsAppFlowEngineService needing to depend on WhatsAppBotService
+  // (which would be circular — this service already depends on the engine).
   private async createOrderFromQuote(
     session: WhatsAppSession,
     request: PrescriptionUploadRequest,
     quote: MedicineShopQuote,
     deliveryAddress: string,
   ): Promise<MedicineOrder> {
-    const items: OrderedMedicineItem[] = quote.items?.length
-      ? quote.items.map((i) => ({
-          name: i.name,
-          quantity: i.quantity ?? 1,
-          unitPriceCents: i.priceCents ?? 0,
-          subtotalCents: (i.priceCents ?? 0) * (i.quantity ?? 1),
-        }))
-      : [
-          {
-            name: 'Prescription order',
-            quantity: 1,
-            unitPriceCents: quote.totalCents ?? 0,
-            subtotalCents: quote.totalCents ?? 0,
-          },
-        ];
-    const totalCents =
-      quote.totalCents ?? items.reduce((sum, i) => sum + i.subtotalCents, 0);
-
-    const orderRepo = AppDataSource.getRepository(MedicineOrder);
-    // Delivery is captured as a single free-text WhatsApp reply — there's
-    // no structured address-collection step in this chat flow, so city/
-    // state/pincode are left as placeholders rather than guessed at.
-    const order = orderRepo.create({
-      tenantId: request.tenantId,
-      patientId: request.patientId,
-      shopId: quote.shopId,
-      requestId: request.id,
-      quoteId: quote.id,
-      items,
-      totalCents,
-      status: MedicineOrderStatus.PLACED,
-      deliveryAddressLine1: deliveryAddress,
-      deliveryCity: '—',
-      deliveryState: '—',
-      deliveryPincode: '—',
+    return createOrderFromQuoteUtil({
+      request,
+      quote,
+      deliveryAddress,
       deliveryPhone: session.phoneNumber,
-      statusHistory: [
-        {
-          status: MedicineOrderStatus.PLACED,
-          at: new Date().toISOString(),
-          note: 'Created from a WhatsApp prescription-upload quote',
-        },
-      ],
+      sourceNote: 'Created from a WhatsApp prescription-upload quote',
+      shopAlerts: this.shopAlerts,
+      // This legacy hardcoded-state-machine path has never offered a
+      // choice — it always went straight to Stripe checkout.
+      paymentMethod: MedicineOrderPaymentMethod.ONLINE,
     });
-    const savedOrder = await orderRepo.save(order);
-
-    // The quote is now a real sale — decrement the shop's own catalog
-    // (if they track one; not every shop maintains inventory) and notify
-    // them over WhatsApp if any item just crossed its low-stock threshold.
-    // Never lets a catalog problem block the order itself.
-    try {
-      const { crossedLowStock } = await decrementStockForOrder(
-        quote.shopId,
-        items.map((i) => ({ name: i.name, quantity: i.quantity })),
-      );
-      if (crossedLowStock.length > 0) {
-        await this.notifyShopLowStock(quote.shopId, crossedLowStock);
-      }
-    } catch (err) {
-      console.error(
-        `[WhatsAppBot] Stock decrement/low-stock notify failed: ${formatWhatsAppError(err)}`,
-      );
-    }
-
-    return savedOrder;
-  }
-
-  // Best-effort — only reaches the shop if they're WhatsApp-linked AND have
-  // an open 24h session (same constraint as sendShopQuoteRequest); silently
-  // does nothing otherwise rather than trying to cold-message them.
-  // Delegates the actual send to MedicineShopAlertsService (shared with
-  // the daily expiry/low-stock cron job — see medicine-shop-alerts.job.ts)
-  // and stamps the same cooldown field it uses, so an item that just
-  // crossed its threshold here doesn't get re-alerted by the daily job
-  // hours later.
-  private async notifyShopLowStock(
-    shopId: string,
-    items: MedicineShopCatalogItem[],
-  ): Promise<void> {
-    const shop = await AppDataSource.getRepository(MedicineShop).findOne({
-      where: { id: shopId },
-    });
-    if (!shop) return;
-
-    const lines = items
-      .map((i) => `- ${i.name}: ${i.quantity} ${i.unit} left`)
-      .join('\n');
-    const text = `⚠️ Low stock alert!\n\n${lines}\n\nUpdate your quantities in the shop portal once you restock.`;
-    await this.shopAlerts.sendShopMessage(shop, text);
-
-    const itemRepo = AppDataSource.getRepository(MedicineShopCatalogItem);
-    items.forEach((i) => { i.lastLowStockAlertAt = new Date(); });
-    await itemRepo.save(items);
   }
 
   private async handleOrderConfirmation(

@@ -33,6 +33,7 @@ import {
 import { phoneNumberRouter } from './modules/phone-number/phone-number.routes';
 import { medicineOrdersRouter } from './modules/medicine-orders/medicine-orders.routes';
 import { shopRouter } from './modules/shop/shop.routes';
+import { patientFlowRouter } from './modules/patient-flow/patient-flow.routes';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { WhatsAppWebhookController } from './modules/whatsapp/whatsapp-webhook.controller';
 import { container } from './config/container';
@@ -160,6 +161,7 @@ export function createApp(): Express {
   app.use('/api/doctor/phone-numbers', phoneNumberRouter);
   app.use('/api/voice-agent/webhook', voiceAgentWebhookRouter);
   app.use('/api/shop', shopRouter);
+  app.use('/api/patient-flow', patientFlowRouter);
 
   app.use(errorMiddleware);
 

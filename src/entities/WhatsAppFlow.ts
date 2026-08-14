@@ -20,7 +20,17 @@ export type WhatsAppFlowNodeType =
   | 'platform_consultation_type'
   | 'platform_payment_method'
   | 'platform_create_booking'
-  | 'platform_order_status';
+  | 'platform_order_status'
+  // Prescription-quote-marketplace nodes — channel-agnostic on purpose:
+  // the exact same node types run this journey whether the turn came from
+  // WhatsApp (WhatsAppFlowSink) or the mobile app (AppFlowSink), see
+  // whatsapp-flow-engine.service.ts. No admin-authored `data` fields —
+  // behavior is standardized business logic, same spirit as platform_*.
+  | 'upload_prescription'
+  | 'await_shop_quotes'
+  | 'select_quote'
+  | 'order_payment'
+  | 'track_delivery';
 
 export interface WhatsAppFlowNode {
   id: string;

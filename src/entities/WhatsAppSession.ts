@@ -26,6 +26,12 @@ export interface WhatsAppMessageEvent {
   timestamp: string;
   mediaUrl?: string;
   mimeType?: string;
+  // Set only on the app channel (WhatsApp's sink no-ops sendStructured —
+  // see AppFlowSink) so a rich bubble (quote list, pay button, tracking)
+  // stays anchored in its place in the chat history, not just visible for
+  // the one turn it was the "current" step — same as a document message
+  // in a real WhatsApp thread doesn't disappear once you've replied to it.
+  step?: { stepType: string; data: Record<string, unknown> };
 }
 
 @Entity('whatsapp_sessions')

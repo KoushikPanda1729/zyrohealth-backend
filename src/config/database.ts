@@ -28,6 +28,7 @@ import { MedicineOrder } from '../entities/MedicineOrder';
 import { MedicineOrderPayment } from '../entities/MedicineOrderPayment';
 import { MedicineShopPayout } from '../entities/MedicineShopPayout';
 import { WhatsAppSession } from '../entities/WhatsAppSession';
+import { AppFlowSession } from '../entities/AppFlowSession';
 import { WhatsAppFlow } from '../entities/WhatsAppFlow';
 import { Tenant } from '../entities/Tenant';
 import { Permission } from '../entities/Permission';
@@ -94,6 +95,7 @@ export const AppDataSource = new DataSource({
     MedicineOrderPayment,
     MedicineShopPayout,
     WhatsAppSession,
+    AppFlowSession,
     WhatsAppFlow,
     Tenant,
     Permission,

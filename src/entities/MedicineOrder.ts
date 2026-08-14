@@ -24,6 +24,14 @@ export enum MedicineOrderPaymentStatus {
   REFUNDED = 'refunded',
 }
 
+// Chosen by the patient in the prescription-quote flow (see
+// whatsapp-flow-engine.service.ts's executeOrderPayment) before an order is
+// created — cash orders never get a Stripe checkout session at all.
+export enum MedicineOrderPaymentMethod {
+  ONLINE = 'online',
+  COD = 'cod',
+}
+
 export interface OrderedMedicineItem {
   name: string;
   genericName?: string;
@@ -78,6 +86,16 @@ export class MedicineOrder extends BaseEntity {
     default: MedicineOrderPaymentStatus.UNPAID,
   })
   paymentStatus!: MedicineOrderPaymentStatus;
+
+  // Nullable — orders placed before this existed, or through a path that
+  // never asks, have no recorded method.
+  @Column({
+    name: 'payment_method',
+    type: 'enum',
+    enum: MedicineOrderPaymentMethod,
+    nullable: true,
+  })
+  paymentMethod?: MedicineOrderPaymentMethod;
 
   // Stamped by the tenant admin's "Notify Shop to Deliver" action — gates
   // what a shop can see via GET /api/shop/orders (see shop.service.ts).
