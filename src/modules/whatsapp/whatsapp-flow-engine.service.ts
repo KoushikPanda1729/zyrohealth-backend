@@ -524,7 +524,7 @@ export class WhatsAppFlowEngineService {
       // purpose, see WhatsAppFlowNodeType's doc comment. ─────────────────
 
       case 'upload_prescription':
-        return this.executeUploadPrescription(session, media, consumeInput, outgoing, sink);
+        return this.executeUploadPrescription(session, inputText, media, consumeInput, outgoing, sink);
 
       case 'await_shop_quotes':
         return this.executeAwaitShopQuotes(session, outgoing, sink);
@@ -969,6 +969,7 @@ export class WhatsAppFlowEngineService {
 
   private async executeUploadPrescription(
     session: FlowSession,
+    inputText: string,
     media: FlowMedia,
     consumeInput: boolean,
     outgoing: WhatsAppFlowEdge[],
@@ -989,11 +990,20 @@ export class WhatsAppFlowEngineService {
       return { action: 'wait' };
     }
 
+    // "photo attached" is the app's own placeholder when the patient left
+    // the caption blank (see prescription_chat_screen.dart's
+    // _ImagePreviewScreen) — not a real note, so it shouldn't show up as
+    // one on the admin side.
+    const trimmedNote = inputText.trim();
+    const patientNote =
+      trimmedNote && trimmedNote.toLowerCase() !== 'photo attached' ? trimmedNote : undefined;
+
     const request = await AppDataSource.getRepository(PrescriptionUploadRequest).save(
       AppDataSource.getRepository(PrescriptionUploadRequest).create({
         tenantId: session.tenantId,
         patientId: session.userId,
         imageUrl: media.url,
+        patientNote,
         status: PrescriptionUploadStatus.PENDING_DISPATCH,
         dispatchedShopIds: [],
       }),

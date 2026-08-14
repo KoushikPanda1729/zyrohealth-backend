@@ -36,6 +36,14 @@ export class PrescriptionUploadRequest extends BaseEntity {
   @Column({ name: 'image_url' })
   imageUrl!: string;
 
+  // Whatever the patient typed alongside the photo (a WhatsApp caption, or
+  // the app's optional caption field) — staff-facing context like "this is
+  // for my father" or "please deliver by evening", not itself part of the
+  // prescription. Null when nothing meaningful was said (see
+  // executeUploadPrescription's placeholder-text filtering).
+  @Column({ name: 'patient_note', nullable: true })
+  patientNote?: string;
+
   @Column({
     type: 'enum',
     enum: PrescriptionUploadStatus,
