@@ -3,7 +3,11 @@ import { injectable } from 'tsyringe';
 import { MedicineOrdersService } from './medicine-orders.service';
 import { success, paginated } from '../../utils/api-response';
 import { AppError } from '../../utils/app-error';
-import { CreateOrderDtoType } from './medicine-orders.dto';
+import {
+  CreateOrderDtoType,
+  InitiateMedicineOrderPaymentDtoType,
+  InitiateGroupPaymentDtoType,
+} from './medicine-orders.dto';
 
 @injectable()
 export class MedicineOrdersController {
@@ -81,6 +85,45 @@ export class MedicineOrdersController {
         reason,
       );
       res.status(200).json(success(order, 'Order cancelled'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  initiatePayment = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const { id } = req.params as { id: string };
+      const { platform } = req.body as InitiateMedicineOrderPaymentDtoType;
+      const result = await this.medicineOrdersService.initiatePayment(
+        id,
+        req.user.id,
+        platform,
+      );
+      res.status(200).json(success(result));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  initiateGroupPayment = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const { orderIds, platform } = req.body as InitiateGroupPaymentDtoType;
+      const result = await this.medicineOrdersService.initiateGroupPayment(
+        orderIds,
+        req.user.id,
+        platform,
+      );
+      res.status(200).json(success(result));
     } catch (err) {
       next(err);
     }

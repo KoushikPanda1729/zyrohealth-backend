@@ -11,6 +11,7 @@ import { PAYMENT_PROVIDER } from '../../config/container';
 import { AppError } from '../../utils/app-error';
 import { InitiatePaymentDtoType } from './payments.dto';
 import { WhatsAppNotificationService } from '../notifications/whatsapp-notification.service';
+import { buildBookingRedirectUrls } from '../../utils/payment-redirect.util';
 
 @injectable()
 export class PaymentsService {
@@ -42,10 +43,14 @@ export class PaymentsService {
         where: { bookingId: booking.id },
       });
 
-      // If a pending session still works, return its URL directly
+      // If a pending session still works, return its URL directly — but
+      // only if it was built for the same platform. Stripe sessions are
+      // immutable, so a session created for 'web' still has the web
+      // frontend's URL baked in even if this call now asks for 'app'.
       if (
         existingPayment?.paymentMethodId &&
-        existingPayment.status === PaymentStatus.PENDING
+        existingPayment.status === PaymentStatus.PENDING &&
+        existingPayment.redirectPlatform === dto.platform
       ) {
         try {
           const session = await (
@@ -61,9 +66,12 @@ export class PaymentsService {
         }
       }
 
-      const baseUrl = process.env['FRONTEND_URL'] ?? 'http://localhost:3002';
       // Use a timestamp suffix so Stripe doesn't replay an expired session
       const idempotencyKey = `booking-${booking.id}-patient-${patientId}-${Date.now()}`;
+      const { successUrl, cancelUrl } = buildBookingRedirectUrls(
+        dto.platform,
+        booking,
+      );
 
       const result = await this.paymentProvider.createCheckoutSession(
         {
@@ -71,8 +79,8 @@ export class PaymentsService {
           currency: dto.currency ?? 'inr',
           description: 'Medical Consultation — Full Health',
           metadata: { bookingId: booking.id, patientId },
-          successUrl: `${baseUrl}/bookings?success=1&bookingId=${booking.id}`,
-          cancelUrl: `${baseUrl}/doctors/${booking.doctorId}?cancelled=1`,
+          successUrl,
+          cancelUrl,
         },
         idempotencyKey,
       );
@@ -85,6 +93,7 @@ export class PaymentsService {
         existingPayment.currency = dto.currency ?? 'inr';
         existingPayment.paymentMethodId = result.sessionId;
         existingPayment.paymentIntentId = result.paymentIntentId;
+        existingPayment.redirectPlatform = dto.platform;
         const saved = await paymentRepo.save(existingPayment);
         return { url: result.url, paymentId: saved.id };
       }
@@ -97,6 +106,7 @@ export class PaymentsService {
         currency: dto.currency ?? 'inr',
         paymentMethodId: result.sessionId,
         paymentIntentId: result.paymentIntentId,
+        redirectPlatform: dto.platform,
       });
       await paymentRepo.save(payment);
 

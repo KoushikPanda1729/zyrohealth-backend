@@ -52,6 +52,14 @@ export class MedicineOrderPayment extends BaseEntity {
   @Column({ name: 'payment_method_id', nullable: true })
   paymentMethodId?: string;
 
+  // Which success/cancel redirect the Stripe Checkout Session behind
+  // paymentMethodId was built with ('web' or 'app' — see
+  // utils/payment-redirect.util.ts). Stripe sessions are immutable once
+  // created, so a cached session can only be reused if this still matches
+  // the platform being requested now.
+  @Column({ name: 'redirect_platform', nullable: true })
+  redirectPlatform?: string;
+
   @Column({ name: 'refund_id', nullable: true })
   refundId?: string;
 

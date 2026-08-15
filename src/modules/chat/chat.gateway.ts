@@ -20,10 +20,20 @@ export function registerChatGateway(io: Server, socket: Socket): void {
       socket.emit('error', { message: 'Invalid join_room data' });
       return;
     }
-    void socket.join(parsed.data.bookingId);
-    socket
-      .to(parsed.data.bookingId)
-      .emit('user_joined', { userId, socketId: socket.id });
+    // Without this check, any authenticated socket could join (and thus
+    // read/post into) a booking's chat room it has no relationship to —
+    // the REST endpoints already gate every action on this same check.
+    void chatService
+      .assertParticipant(parsed.data.bookingId, userId)
+      .then(() => {
+        void socket.join(parsed.data.bookingId);
+        socket
+          .to(parsed.data.bookingId)
+          .emit('user_joined', { userId, socketId: socket.id });
+      })
+      .catch(() => {
+        socket.emit('error', { message: 'Not authorized to join this chat' });
+      });
   });
 
   socket.on('leave_room', (data: unknown) => {
@@ -40,13 +50,19 @@ export function registerChatGateway(io: Server, socket: Socket): void {
       return;
     }
 
+    // saveMessage() itself has no participant check (it's also used
+    // internally after sendMessage() already checked) — must gate here,
+    // same as join_room above.
     void chatService
-      .saveMessage(
-        parsed.data.bookingId,
-        userId,
-        parsed.data.type as MessageType,
-        parsed.data.content,
-        parsed.data.fileUrl,
+      .assertParticipant(parsed.data.bookingId, userId)
+      .then(() =>
+        chatService.saveMessage(
+          parsed.data.bookingId,
+          userId,
+          parsed.data.type as MessageType,
+          parsed.data.content,
+          parsed.data.fileUrl,
+        ),
       )
       .then((msg) => {
         io.to(parsed.data.bookingId).emit('new_message', msg);

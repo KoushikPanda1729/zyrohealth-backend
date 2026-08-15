@@ -759,7 +759,7 @@ export class WhatsAppFlowEngineService {
       const date = new Date();
       date.setDate(date.getDate() + dayOffset);
       const slots = await this.doctors.getAvailableSlots(
-        session.tenantId!,
+        session.tenantId,
         doctorProfileId,
         date,
       );
@@ -1371,7 +1371,10 @@ export class WhatsAppFlowEngineService {
     const isPassivePoll = consumeInput && inputText.trim().toLowerCase() === 'checking';
 
     try {
-      const { url } = await this.medicineOrderPayments.createCheckoutForOrder(order);
+      // The app channel gets a deep link back into itself instead of the
+      // web frontend's URL, which a phone's browser can never reach.
+      const platform = sink instanceof AppFlowSink ? 'app' : 'web';
+      const { url } = await this.medicineOrderPayments.createCheckoutForOrder(order, platform);
       const lastAnnounced = session.flowVariables['lastAnnouncedCheckoutUrl'] as string | undefined;
       const changed = lastAnnounced !== url;
       const shouldAnnounce = changed || !isPassivePoll;

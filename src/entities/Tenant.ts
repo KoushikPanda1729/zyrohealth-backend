@@ -16,6 +16,12 @@ export class Tenant extends BaseEntity {
   @Column({ nullable: true, name: 'contact_email' })
   contactEmail?: string;
 
+  // Clinic's physical address — shown to patients booking an in-person
+  // ("offline") appointment with one of this tenant's doctors, since a
+  // video consultation has no location to show at all.
+  @Column({ type: 'text', nullable: true })
+  address?: string;
+
   @Column({ name: 'is_active', default: true })
   isActive!: boolean;
 

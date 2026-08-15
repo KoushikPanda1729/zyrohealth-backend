@@ -38,6 +38,10 @@ export interface OrderedMedicineItem {
   quantity: number;
   unitPriceCents: number;
   subtotalCents: number;
+  // Set only when this line came from a shop's real catalogue (a direct
+  // pharmacy purchase, not the WhatsApp prescription-quote flow) — lets
+  // cancelOrder restore the exact stock it decremented at order time.
+  catalogItemId?: string;
 }
 
 export interface MedicineOrderStatusEvent {

@@ -42,6 +42,7 @@ export class BookingsService {
       const { url } = await this.payments.initiatePayment(patientId, {
         bookingId: booking.id,
         currency: 'inr',
+        platform: 'web',
       });
       void this.whatsapp.notifyPaymentLink(booking, phone, url);
     } catch (err) {
@@ -64,23 +65,28 @@ export class BookingsService {
     const patient = await AppDataSource.getRepository(User).findOne({
       where: { id: patientId },
     });
-    if (!patient?.tenantId) throw AppError.notFound('Patient');
-    const tenantId = patient.tenantId;
+    if (!patient) throw AppError.notFound('Patient');
 
-    // Accept either profile ID or user ID for doctorId — always scoped to
-    // the patient's own tenant, so a patient can never book a doctor that
-    // belongs to a different tenant even if they know/guess the ID.
+    // Accept either profile ID or user ID for doctorId. The booking
+    // belongs to the DOCTOR's own tenant, not the patient's — a patient
+    // can book any approved doctor regardless of which tenant they're
+    // registered under, same precedent as the medicine marketplace (an
+    // order belongs to whichever shop fulfills it, not the requesting
+    // tenant). This also means a patient with no tenantId of their own
+    // (see getDefaultTenantId's fallback) can still book successfully.
     let doctorProfile = await AppDataSource.getRepository(
       DoctorProfile,
     ).findOne({
-      where: { id: dto.doctorId, tenantId },
+      where: { id: dto.doctorId },
     });
     if (!doctorProfile) {
       doctorProfile = await AppDataSource.getRepository(DoctorProfile).findOne({
-        where: { userId: dto.doctorId, tenantId },
+        where: { userId: dto.doctorId },
       });
     }
     if (!doctorProfile) throw AppError.notFound('Doctor');
+    const tenantId = doctorProfile.tenantId;
+    if (!tenantId) throw AppError.notFound('Doctor');
 
     const doctorUserId = doctorProfile.userId;
     const scheduledAt = new Date(dto.scheduledAt);
@@ -151,12 +157,41 @@ export class BookingsService {
     return saved;
   }
 
+  // Booking.doctorId is the doctor's USER id, not their DoctorProfile id —
+  // there's no direct relation from Booking to DoctorProfile. The mobile
+  // app's appointments list/detail needs the specialty (nicer than just a
+  // name) and, critically, the real DoctorProfile id so "Reschedule" can
+  // send the patient into the normal doctor-booking flow (which is keyed
+  // by profile id, not user id) for the same doctor. Same batch-lookup
+  // "hydrate" pattern as doctors.service.ts's hydrateTenantInfo.
+  private async hydrateDoctorProfiles<T extends { doctorId: string }>(
+    bookings: T[],
+  ): Promise<(T & { doctorProfileId?: string; doctorSpecialty?: string })[]> {
+    const doctorUserIds = [...new Set(bookings.map((b) => b.doctorId))];
+    if (doctorUserIds.length === 0) return bookings;
+    const profiles = await AppDataSource.getRepository(DoctorProfile).findBy({
+      userId: In(doctorUserIds),
+    });
+    const byUserId = new Map(profiles.map((p) => [p.userId, p]));
+    return bookings.map((b) => {
+      const profile = byUserId.get(b.doctorId);
+      return {
+        ...b,
+        doctorProfileId: profile?.id,
+        doctorSpecialty: profile?.specialty,
+      };
+    });
+  }
+
   async listBookings(
     userId: string,
     role: string,
     page: number,
     limit: number,
-  ): Promise<{ data: Booking[]; total: number }> {
+  ): Promise<{
+    data: (Booking & { doctorProfileId?: string; doctorSpecialty?: string })[];
+    total: number;
+  }> {
     const repo = AppDataSource.getRepository(Booking);
     const whereClause =
       role === 'doctor' ? { doctorId: userId } : { patientId: userId };
@@ -169,10 +204,13 @@ export class BookingsService {
       relations: ['patient', 'doctor', 'payment'],
     });
 
-    return { data, total };
+    return { data: await this.hydrateDoctorProfiles(data), total };
   }
 
-  async getBookingById(id: string, userId: string): Promise<Booking> {
+  async getBookingById(
+    id: string,
+    userId: string,
+  ): Promise<Booking & { doctorProfileId?: string; doctorSpecialty?: string }> {
     const booking = await AppDataSource.getRepository(Booking).findOne({
       where: { id },
       relations: ['patient', 'doctor', 'payment', 'prescription', 'review'],
@@ -181,7 +219,8 @@ export class BookingsService {
     if (booking.patientId !== userId && booking.doctorId !== userId) {
       throw AppError.forbidden();
     }
-    return booking;
+    const [hydrated] = await this.hydrateDoctorProfiles([booking]);
+    return hydrated;
   }
 
   async cancelBooking(

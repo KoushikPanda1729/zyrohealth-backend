@@ -59,6 +59,7 @@ export class PlatformController {
         contactEmail,
         whatsappFromNumber,
         subdomain,
+        address,
         moduleKeys,
         adminEmail,
         adminFullName,
@@ -67,6 +68,7 @@ export class PlatformController {
         contactEmail?: string;
         whatsappFromNumber?: string;
         subdomain?: string;
+        address?: string;
         moduleKeys?: string[];
         adminEmail: string;
         adminFullName: string;
@@ -81,6 +83,7 @@ export class PlatformController {
         contactEmail,
         whatsappFromNumber,
         subdomain,
+        address,
         moduleKeys: moduleKeys ?? [],
         adminEmail,
         adminFullName,
@@ -98,16 +101,19 @@ export class PlatformController {
   ): Promise<void> => {
     try {
       const { id } = req.params as { id: string };
-      const { name, contactEmail, whatsappFromNumber, isActive } = req.body as {
-        name?: string;
-        contactEmail?: string;
-        whatsappFromNumber?: string;
-        isActive?: boolean;
-      };
+      const { name, contactEmail, whatsappFromNumber, address, isActive } =
+        req.body as {
+          name?: string;
+          contactEmail?: string;
+          whatsappFromNumber?: string;
+          address?: string;
+          isActive?: boolean;
+        };
       const tenant = await this.platformService.updateTenant(id, {
         name,
         contactEmail,
         whatsappFromNumber,
+        address,
         isActive,
       });
       res.status(200).json(success(tenant, 'Tenant updated'));

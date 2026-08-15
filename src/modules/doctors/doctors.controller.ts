@@ -18,8 +18,12 @@ import { getDefaultTenantId } from '../tenancy/permissions.util';
 // These "browse doctors" endpoints are public (no login required), so
 // there's no req.user.tenantId to read. A tenant-specific booking
 // link/app instance passes its own ?tenantId=; omitted requests (today's
-// app) fall back to the default tenant.
-async function resolveTenantId(req: Request): Promise<string> {
+// app) fall back to the default tenant. ?allTenants=true opts out of
+// tenant scoping entirely — the mobile app's directory browses every
+// tenant's doctors at once, same idea as the medicine marketplace showing
+// quotes from whichever shop actually fulfills them.
+async function resolveTenantId(req: Request): Promise<string | undefined> {
+  if (req.query['allTenants'] === 'true') return undefined;
   const queryTenantId = req.query['tenantId'] as string | undefined;
   const tenantId = queryTenantId ?? (await getDefaultTenantId());
   if (!tenantId) throw AppError.notFound('Tenant');

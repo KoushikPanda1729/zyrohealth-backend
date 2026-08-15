@@ -5,7 +5,12 @@ import { verifyToken } from '../../middleware/verifyToken.middleware';
 import { attachRole } from '../../middleware/attachRole.middleware';
 import { requireRole } from '../../middleware/requireRole.middleware';
 import { validate } from '../../middleware/validate.middleware';
-import { CreateOrderDto, CancelOrderDto } from './medicine-orders.dto';
+import {
+  CreateOrderDto,
+  CancelOrderDto,
+  InitiateMedicineOrderPaymentDto,
+  InitiateGroupPaymentDto,
+} from './medicine-orders.dto';
 
 const router = Router();
 const ctrl = container.resolve(MedicineOrdersController);
@@ -35,6 +40,26 @@ router.post(
   validate(CancelOrderDto),
   (req, res, next) => {
     void ctrl.cancelOrder(req, res, next);
+  },
+);
+
+router.post(
+  '/:id/initiate-payment',
+  requireRole('patient'),
+  validate(InitiateMedicineOrderPaymentDto),
+  (req, res, next) => {
+    void ctrl.initiatePayment(req, res, next);
+  },
+);
+
+// A cart spanning several pharmacies creates one order per shop, then pays
+// for all of them together — no :id here since it covers multiple orders.
+router.post(
+  '/initiate-group-payment',
+  requireRole('patient'),
+  validate(InitiateGroupPaymentDto),
+  (req, res, next) => {
+    void ctrl.initiateGroupPayment(req, res, next);
   },
 );
 

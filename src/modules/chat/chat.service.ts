@@ -12,12 +12,13 @@ export class ChatService {
   constructor(
     @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
   ) {}
-  async getMessages(
-    bookingId: string,
-    userId: string,
-    page: number,
-    limit: number,
-  ): Promise<{ data: ChatMessage[]; total: number }> {
+
+  // Every entry point (REST and the Socket.IO gateway alike) must confirm
+  // the caller is actually a participant on this booking before they can
+  // read, send, upload into, or even just JOIN that booking's chat room —
+  // otherwise any authenticated user could listen in on or post into a
+  // booking that isn't theirs.
+  async assertParticipant(bookingId: string, userId: string): Promise<Booking> {
     const booking = await AppDataSource.getRepository(Booking).findOne({
       where: { id: bookingId },
     });
@@ -25,6 +26,16 @@ export class ChatService {
     if (booking.patientId !== userId && booking.doctorId !== userId) {
       throw AppError.forbidden();
     }
+    return booking;
+  }
+
+  async getMessages(
+    bookingId: string,
+    userId: string,
+    page: number,
+    limit: number,
+  ): Promise<{ data: ChatMessage[]; total: number }> {
+    await this.assertParticipant(bookingId, userId);
 
     const [data, total] = await AppDataSource.getRepository(
       ChatMessage,
@@ -63,13 +74,7 @@ export class ChatService {
     senderRole: string,
     dto: SendMessageDtoType,
   ): Promise<ChatMessage> {
-    const booking = await AppDataSource.getRepository(Booking).findOne({
-      where: { id: bookingId },
-    });
-    if (!booking) throw AppError.notFound('Booking');
-    if (booking.patientId !== senderId && booking.doctorId !== senderId) {
-      throw AppError.forbidden();
-    }
+    await this.assertParticipant(bookingId, senderId);
 
     if (dto.type === 'prescription' && senderRole !== 'doctor') {
       throw AppError.forbidden();
@@ -87,13 +92,7 @@ export class ChatService {
   }
 
   async markAsRead(bookingId: string, userId: string): Promise<void> {
-    const booking = await AppDataSource.getRepository(Booking).findOne({
-      where: { id: bookingId },
-    });
-    if (!booking) throw AppError.notFound('Booking');
-    if (booking.patientId !== userId && booking.doctorId !== userId) {
-      throw AppError.forbidden();
-    }
+    await this.assertParticipant(bookingId, userId);
 
     await AppDataSource.getRepository(ChatMessage)
       .createQueryBuilder()
@@ -114,13 +113,7 @@ export class ChatService {
     userId: string,
     file: Express.Multer.File,
   ): Promise<string> {
-    const booking = await AppDataSource.getRepository(Booking).findOne({
-      where: { id: bookingId },
-    });
-    if (!booking) throw AppError.notFound('Booking');
-    if (booking.patientId !== userId && booking.doctorId !== userId) {
-      throw AppError.forbidden();
-    }
+    await this.assertParticipant(bookingId, userId);
 
     const ext = file.originalname.split('.').pop() ?? 'bin';
     const key = `chat/${bookingId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;

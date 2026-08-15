@@ -32,6 +32,7 @@ import {
 } from './modules/voice-agent/voice-agent.routes';
 import { phoneNumberRouter } from './modules/phone-number/phone-number.routes';
 import { medicineOrdersRouter } from './modules/medicine-orders/medicine-orders.routes';
+import { pharmacyRouter } from './modules/pharmacy/pharmacy.routes';
 import { shopRouter } from './modules/shop/shop.routes';
 import { patientFlowRouter } from './modules/patient-flow/patient-flow.routes';
 import { PaymentsController } from './modules/payments/payments.controller';
@@ -154,6 +155,7 @@ export function createApp(): Express {
   app.use('/api/chat', chatRouter);
   app.use('/api/prescriptions', prescriptionsRouter);
   app.use('/api/medicine-orders', medicineOrdersRouter);
+  app.use('/api/pharmacy', pharmacyRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/platform', platformRouter);

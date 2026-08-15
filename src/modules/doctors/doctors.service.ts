@@ -1,4 +1,5 @@
 import { injectable, inject } from 'tsyringe';
+import { In } from 'typeorm';
 import { AppDataSource } from '../../config/database';
 import { DoctorProfile, ApprovalStatus } from '../../entities/DoctorProfile';
 import {
@@ -16,6 +17,7 @@ import { generateAvailableSlots } from '../../utils/slot-generator';
 import { TimeSlot } from '../../utils/slot-generator';
 import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
 import { STORAGE_PROVIDER } from '../../config/container';
+import { Tenant } from '../../entities/Tenant';
 import {
   UpdateDoctorProfileDtoType,
   CreateMedicineDtoType,
@@ -29,8 +31,12 @@ export class DoctorsService {
     @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
   ) {}
 
+  // tenantId undefined means "every tenant" — the mobile app's cross-tenant
+  // directory (see doctors.controller.ts's ?allTenants=true) versus a
+  // tenant-specific booking link/app instance that still only wants its
+  // own doctors.
   async listDoctors(
-    tenantId: string,
+    tenantId: string | undefined,
     filters: {
       specialty?: string;
       language?: string;
@@ -39,16 +45,22 @@ export class DoctorsService {
       page: number;
       limit: number;
     },
-  ): Promise<{ data: DoctorProfile[]; total: number }> {
+  ): Promise<{
+    data: (DoctorProfile & { tenantName?: string; tenantAddress?: string })[];
+    total: number;
+  }> {
     const repo = AppDataSource.getRepository(DoctorProfile);
     const qb = repo
       .createQueryBuilder('dp')
       .leftJoinAndSelect('dp.user', 'user')
-      .where('dp.tenant_id = :tenantId', { tenantId })
       .andWhere('dp.approval_status = :status', {
         status: ApprovalStatus.APPROVED,
       })
       .andWhere('dp.is_available = true');
+
+    if (tenantId) {
+      qb.andWhere('dp.tenant_id = :tenantId', { tenantId });
+    }
 
     if (filters.specialty) {
       qb.andWhere('LOWER(dp.specialty) LIKE :specialty', {
@@ -76,21 +88,43 @@ export class DoctorsService {
       .take(filters.limit)
       .getManyAndCount();
 
-    return { data, total };
+    return { data: await this.hydrateTenantInfo(data), total };
+  }
+
+  // No @ManyToOne relation from DoctorProfile to Tenant exists (just the
+  // tenantId FK) — a plain batch lookup, same "hydrate" pattern
+  // admin.service.ts already uses for patient/shop names. Address is
+  // included alongside the name so a patient booking an in-person ("site")
+  // appointment can see the clinic's location — a video consultation has
+  // nothing to show here, so it's left undefined for tenants without one.
+  private async hydrateTenantInfo<T extends { tenantId?: string }>(
+    doctors: T[],
+  ): Promise<(T & { tenantName?: string; tenantAddress?: string })[]> {
+    const tenantIds = [...new Set(doctors.map((d) => d.tenantId).filter((id): id is string => Boolean(id)))];
+    if (tenantIds.length === 0) return doctors;
+    const tenants = await AppDataSource.getRepository(Tenant).findBy({ id: In(tenantIds) });
+    const nameById = new Map(tenants.map((t) => [t.id, t.name]));
+    const addressById = new Map(tenants.map((t) => [t.id, t.address]));
+    return doctors.map((d) => ({
+      ...d,
+      tenantName: d.tenantId ? nameById.get(d.tenantId) : undefined,
+      tenantAddress: d.tenantId ? addressById.get(d.tenantId) : undefined,
+    }));
   }
 
   async getDoctorById(
-    tenantId: string,
+    tenantId: string | undefined,
     doctorProfileId: string,
   ): Promise<{
-    profile: DoctorProfile;
+    profile: DoctorProfile & { tenantName?: string; tenantAddress?: string };
     reviews: Review[];
   }> {
     const profile = await AppDataSource.getRepository(DoctorProfile).findOne({
-      where: { id: doctorProfileId, tenantId },
+      where: tenantId ? { id: doctorProfileId, tenantId } : { id: doctorProfileId },
       relations: ['user'],
     });
     if (!profile) throw AppError.notFound('Doctor');
+    const [hydrated] = await this.hydrateTenantInfo([profile]);
 
     const reviews = await AppDataSource.getRepository(Review).find({
       where: { doctorId: profile.userId },
@@ -99,16 +133,16 @@ export class DoctorsService {
       take: 20,
     });
 
-    return { profile, reviews };
+    return { profile: hydrated, reviews };
   }
 
   async getAvailableSlots(
-    tenantId: string,
+    tenantId: string | undefined,
     doctorProfileId: string,
     date: Date,
   ): Promise<TimeSlot[]> {
     const profile = await AppDataSource.getRepository(DoctorProfile).findOne({
-      where: { id: doctorProfileId, tenantId },
+      where: tenantId ? { id: doctorProfileId, tenantId } : { id: doctorProfileId },
     });
     if (!profile) throw AppError.notFound('Doctor');
 

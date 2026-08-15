@@ -75,6 +75,7 @@ export class PlatformService {
     contactEmail?: string;
     whatsappFromNumber?: string;
     subdomain?: string;
+    address?: string;
     moduleKeys: string[];
     adminEmail: string;
     adminFullName: string;
@@ -107,6 +108,7 @@ export class PlatformService {
         name: data.name,
         contactEmail: data.contactEmail,
         whatsappFromNumber: data.whatsappFromNumber,
+        address: data.address,
         subdomain,
         isActive: true,
       }),
@@ -271,6 +273,7 @@ export class PlatformService {
       name: string;
       contactEmail: string;
       whatsappFromNumber: string;
+      address: string;
       isActive: boolean;
     }>,
   ): Promise<Tenant> {
@@ -286,6 +289,7 @@ export class PlatformService {
       tenant.contactEmail = data.contactEmail;
     if (data.whatsappFromNumber !== undefined)
       tenant.whatsappFromNumber = data.whatsappFromNumber;
+    if (data.address !== undefined) tenant.address = data.address;
     if (data.isActive !== undefined) tenant.isActive = data.isActive;
 
     return repo.save(tenant);
