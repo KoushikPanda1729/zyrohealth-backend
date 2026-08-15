@@ -193,9 +193,9 @@ export class AiService {
     return this.hydrateImageUrls(session);
   }
 
-  async listSessions(userId: string): Promise<AiSession[]> {
+  async listSessions(userId: string, aiDoctorId?: string): Promise<AiSession[]> {
     return AppDataSource.getRepository(AiSession).find({
-      where: { userId },
+      where: aiDoctorId ? { userId, aiDoctorId } : { userId },
       order: { createdAt: 'DESC' },
       select: [
         'id',
@@ -208,6 +208,7 @@ export class AiService {
         'severityScore',
         'suggestedSpecialty',
         'referToDoctor',
+        'aiDoctorId',
       ],
     });
   }

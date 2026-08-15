@@ -76,6 +76,40 @@ export class DoctorsController {
     }
   };
 
+  // ── Favorites ────────────────────────────────────────────────────────
+
+  listFavorites = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const doctors = await this.doctorsService.listFavorites(req.user.id);
+      res.status(200).json(success(doctors));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  addFavorite = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const { id } = req.params as { id: string };
+      await this.doctorsService.addFavorite(req.user.id, id);
+      res.status(200).json(success(null, 'Doctor saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  removeFavorite = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.id) throw AppError.unauthorized();
+      const { id } = req.params as { id: string };
+      await this.doctorsService.removeFavorite(req.user.id, id);
+      res.status(200).json(success(null, 'Doctor removed from saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
   getAvailableSlots = async (
     req: Request,
     res: Response,

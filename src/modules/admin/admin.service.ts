@@ -36,6 +36,10 @@ import {
   WhatsAppProviderType,
 } from '../../entities/TenantWhatsAppConfig';
 import { Tenant } from '../../entities/Tenant';
+import { Hospital } from '../../entities/Hospital';
+import { AmbulanceRequest, AmbulanceRequestStatus } from '../../entities/AmbulanceRequest';
+import { Article } from '../../entities/Article';
+import { WomenHealthCategory, WomenHealthTip } from '../../entities/WomenHealthCategory';
 import {
   MedicineShop,
   MedicineShopOwnershipType,
@@ -2573,5 +2577,176 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     tenant.medicineOrderAutoMode = enabled;
     await repo.save(tenant);
     return tenant.medicineOrderAutoMode;
+  }
+
+  // ── Hospitals ────────────────────────────────────────────────────────
+
+  async listHospitals(tenantId: string): Promise<Hospital[]> {
+    return AppDataSource.getRepository(Hospital).find({
+      where: { tenantId },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async createHospital(
+    tenantId: string,
+    data: {
+      name: string;
+      contactPhone: string;
+      addressLine1?: string;
+      city?: string;
+      latitude?: number;
+      longitude?: number;
+      specialties?: string[];
+      emergencyServicesAvailable?: boolean;
+    },
+  ): Promise<Hospital> {
+    const repo = AppDataSource.getRepository(Hospital);
+    return repo.save(repo.create({ tenantId, ...data }));
+  }
+
+  async updateHospital(
+    tenantId: string,
+    id: string,
+    data: Partial<{
+      name: string;
+      contactPhone: string;
+      addressLine1: string;
+      city: string;
+      latitude: number;
+      longitude: number;
+      specialties: string[];
+      emergencyServicesAvailable: boolean;
+      isActive: boolean;
+    }>,
+  ): Promise<Hospital> {
+    const repo = AppDataSource.getRepository(Hospital);
+    const hospital = await repo.findOne({ where: { id, tenantId } });
+    if (!hospital) throw AppError.notFound('Hospital');
+    Object.assign(hospital, data);
+    return repo.save(hospital);
+  }
+
+  // ── Ambulance requests ───────────────────────────────────────────────
+
+  async listAmbulanceRequests(
+    tenantId: string,
+  ): Promise<(AmbulanceRequest & { patient: { fullName?: string; phoneNumber?: string } })[]> {
+    const requests = await AppDataSource.getRepository(AmbulanceRequest).find({
+      where: { tenantId },
+      order: { createdAt: 'DESC' },
+    });
+    return this.hydratePatientInfo(requests);
+  }
+
+  async updateAmbulanceRequestStatus(
+    tenantId: string,
+    id: string,
+    data: { status: AmbulanceRequestStatus; adminNotes?: string },
+  ): Promise<AmbulanceRequest> {
+    const repo = AppDataSource.getRepository(AmbulanceRequest);
+    const request = await repo.findOne({ where: { id, tenantId } });
+    if (!request) throw AppError.notFound('Ambulance request');
+    request.status = data.status;
+    if (data.adminNotes !== undefined) request.adminNotes = data.adminNotes;
+    if (
+      data.status === AmbulanceRequestStatus.COMPLETED ||
+      data.status === AmbulanceRequestStatus.CANCELLED
+    ) {
+      request.resolvedAt = new Date();
+    }
+    return repo.save(request);
+  }
+
+  // ── Articles ─────────────────────────────────────────────────────────
+
+  async listArticles(tenantId: string): Promise<Article[]> {
+    return AppDataSource.getRepository(Article).find({
+      where: { tenantId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async createArticle(
+    tenantId: string,
+    data: {
+      title: string;
+      body: string;
+      imageUrl?: string;
+      category?: string;
+      authorName?: string;
+      readTimeMinutes?: number;
+      isPublished?: boolean;
+    },
+  ): Promise<Article> {
+    const repo = AppDataSource.getRepository(Article);
+    return repo.save(repo.create({ tenantId, ...data }));
+  }
+
+  async updateArticle(
+    tenantId: string,
+    id: string,
+    data: Partial<{
+      title: string;
+      body: string;
+      imageUrl: string;
+      category: string;
+      authorName: string;
+      readTimeMinutes: number;
+      isPublished: boolean;
+    }>,
+  ): Promise<Article> {
+    const repo = AppDataSource.getRepository(Article);
+    const article = await repo.findOne({ where: { id, tenantId } });
+    if (!article) throw AppError.notFound('Article');
+    Object.assign(article, data);
+    return repo.save(article);
+  }
+
+  // ── Women's health categories ─────────────────────────────────────────
+
+  async listWomenHealthCategories(tenantId: string): Promise<WomenHealthCategory[]> {
+    return AppDataSource.getRepository(WomenHealthCategory).find({
+      where: { tenantId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async createWomenHealthCategory(
+    tenantId: string,
+    data: {
+      label: string;
+      icon: string;
+      colorStart: string;
+      colorEnd: string;
+      description: string;
+      facts?: string[];
+      tips?: WomenHealthTip[];
+      isPublished?: boolean;
+    },
+  ): Promise<WomenHealthCategory> {
+    const repo = AppDataSource.getRepository(WomenHealthCategory);
+    return repo.save(repo.create({ tenantId, ...data }));
+  }
+
+  async updateWomenHealthCategory(
+    tenantId: string,
+    id: string,
+    data: Partial<{
+      label: string;
+      icon: string;
+      colorStart: string;
+      colorEnd: string;
+      description: string;
+      facts: string[];
+      tips: WomenHealthTip[];
+      isPublished: boolean;
+    }>,
+  ): Promise<WomenHealthCategory> {
+    const repo = AppDataSource.getRepository(WomenHealthCategory);
+    const category = await repo.findOne({ where: { id, tenantId } });
+    if (!category) throw AppError.notFound("Women's health category");
+    Object.assign(category, data);
+    return repo.save(category);
   }
 }

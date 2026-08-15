@@ -33,6 +33,10 @@ import {
 import { phoneNumberRouter } from './modules/phone-number/phone-number.routes';
 import { medicineOrdersRouter } from './modules/medicine-orders/medicine-orders.routes';
 import { pharmacyRouter } from './modules/pharmacy/pharmacy.routes';
+import { hospitalsRouter } from './modules/hospitals/hospitals.routes';
+import { ambulanceRouter } from './modules/ambulance/ambulance.routes';
+import { articlesRouter } from './modules/articles/articles.routes';
+import { womenHealthRouter } from './modules/women-health/women-health.routes';
 import { shopRouter } from './modules/shop/shop.routes';
 import { patientFlowRouter } from './modules/patient-flow/patient-flow.routes';
 import { PaymentsController } from './modules/payments/payments.controller';
@@ -156,6 +160,10 @@ export function createApp(): Express {
   app.use('/api/prescriptions', prescriptionsRouter);
   app.use('/api/medicine-orders', medicineOrdersRouter);
   app.use('/api/pharmacy', pharmacyRouter);
+  app.use('/api/hospitals', hospitalsRouter);
+  app.use('/api/ambulance-requests', ambulanceRouter);
+  app.use('/api/articles', articlesRouter);
+  app.use('/api/women-health', womenHealthRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/platform', platformRouter);

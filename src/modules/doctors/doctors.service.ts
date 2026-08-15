@@ -9,6 +9,7 @@ import {
 import { MedicineCatalogue } from '../../entities/MedicineCatalogue';
 import { TestCatalogue } from '../../entities/TestCatalogue';
 import { DoctorDocument, DocumentType } from '../../entities/DoctorDocument';
+import { DoctorFavorite } from '../../entities/DoctorFavorite';
 import { Booking, BookingStatus } from '../../entities/Booking';
 import { PatientHistory } from '../../entities/PatientHistory';
 import { Review } from '../../entities/Review';
@@ -134,6 +135,49 @@ export class DoctorsService {
     });
 
     return { profile: hydrated, reviews };
+  }
+
+  // ── Favorites ────────────────────────────────────────────────────────
+  // Purely patient-scoped (no tenant/admin permission gating), same
+  // precedent as ArticleBookmark — "doctorProfileId" here is DoctorProfile.id,
+  // the same id the /doctors/:id route and mobile Doctor.id use.
+
+  async addFavorite(patientId: string, doctorProfileId: string): Promise<void> {
+    const profile = await AppDataSource.getRepository(DoctorProfile).findOne({
+      where: { id: doctorProfileId },
+    });
+    if (!profile) throw AppError.notFound('Doctor');
+
+    const repo = AppDataSource.getRepository(DoctorFavorite);
+    const existing = await repo.findOne({ where: { patientId, doctorProfileId } });
+    if (existing) return;
+    await repo.save(repo.create({ patientId, doctorProfileId }));
+  }
+
+  async removeFavorite(patientId: string, doctorProfileId: string): Promise<void> {
+    await AppDataSource.getRepository(DoctorFavorite).delete({ patientId, doctorProfileId });
+  }
+
+  async listFavorites(
+    patientId: string,
+  ): Promise<(DoctorProfile & { tenantName?: string; tenantAddress?: string })[]> {
+    const favorites = await AppDataSource.getRepository(DoctorFavorite).find({
+      where: { patientId },
+      order: { createdAt: 'DESC' },
+    });
+    if (favorites.length === 0) return [];
+
+    const doctorProfileIds = favorites.map((f) => f.doctorProfileId);
+    const profiles = await AppDataSource.getRepository(DoctorProfile).find({
+      where: { id: In(doctorProfileIds) },
+      relations: ['user'],
+    });
+    const hydrated = await this.hydrateTenantInfo(profiles);
+    const byId = new Map(hydrated.map((p) => [p.id, p]));
+    // Preserve favorite order (most recently saved first).
+    return favorites
+      .map((f) => byId.get(f.doctorProfileId))
+      .filter((p): p is (typeof hydrated)[number] => !!p);
   }
 
   async getAvailableSlots(

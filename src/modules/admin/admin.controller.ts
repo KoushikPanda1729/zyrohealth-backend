@@ -14,6 +14,7 @@ import { WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
 import { PrescriptionUploadStatus } from '../../entities/PrescriptionUploadRequest';
 import { QuotedMedicineItem } from '../../entities/MedicineShopQuote';
 import { MedicineShopOwnershipType } from '../../entities/MedicineShop';
+import { AmbulanceRequestStatus } from '../../entities/AmbulanceRequest';
 import { extractCatalogFieldsFromBody } from '../medicine-shops/catalog.util';
 import { livekitSipClient } from '../../lib/sipClient';
 import { env } from '../../config/env';
@@ -2026,6 +2027,286 @@ export class AdminController {
 
       await repo.delete(id);
       res.status(200).json(success(null, 'Phone number deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Hospitals ────────────────────────────────────────────────────────
+
+  listHospitals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const hospitals = await this.adminService.listHospitals(tenantOf(req));
+      res.status(200).json(success(hospitals));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createHospital = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const {
+        name,
+        contactPhone,
+        addressLine1,
+        city,
+        latitude,
+        longitude,
+        specialties,
+        emergencyServicesAvailable,
+      } = req.body as {
+        name: string;
+        contactPhone: string;
+        addressLine1?: string;
+        city?: string;
+        latitude?: number;
+        longitude?: number;
+        specialties?: string[];
+        emergencyServicesAvailable?: boolean;
+      };
+      if (!name) throw AppError.badRequest('name is required');
+      if (!contactPhone) throw AppError.badRequest('contactPhone is required');
+      const hospital = await this.adminService.createHospital(tenantOf(req), {
+        name,
+        contactPhone,
+        addressLine1,
+        city,
+        latitude,
+        longitude,
+        specialties,
+        emergencyServicesAvailable,
+      });
+      res.status(201).json(success(hospital, 'Hospital created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateHospital = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const {
+        name,
+        contactPhone,
+        addressLine1,
+        city,
+        latitude,
+        longitude,
+        specialties,
+        emergencyServicesAvailable,
+        isActive,
+      } = req.body as {
+        name?: string;
+        contactPhone?: string;
+        addressLine1?: string;
+        city?: string;
+        latitude?: number;
+        longitude?: number;
+        specialties?: string[];
+        emergencyServicesAvailable?: boolean;
+        isActive?: boolean;
+      };
+      const hospital = await this.adminService.updateHospital(tenantOf(req), id, {
+        name,
+        contactPhone,
+        addressLine1,
+        city,
+        latitude,
+        longitude,
+        specialties,
+        emergencyServicesAvailable,
+        isActive,
+      });
+      res.status(200).json(success(hospital, 'Hospital updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Ambulance requests ───────────────────────────────────────────────
+
+  listAmbulanceRequests = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const requests = await this.adminService.listAmbulanceRequests(tenantOf(req));
+      res.status(200).json(success(requests));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateAmbulanceRequestStatus = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { status, adminNotes } = req.body as {
+        status: AmbulanceRequestStatus;
+        adminNotes?: string;
+      };
+      if (!status) throw AppError.badRequest('status is required');
+      const request = await this.adminService.updateAmbulanceRequestStatus(tenantOf(req), id, {
+        status,
+        adminNotes,
+      });
+      res.status(200).json(success(request, 'Ambulance request updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Articles ─────────────────────────────────────────────────────────
+
+  listArticles = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const articles = await this.adminService.listArticles(tenantOf(req));
+      res.status(200).json(success(articles));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createArticle = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { title, body, imageUrl, category, authorName, readTimeMinutes, isPublished } =
+        req.body as {
+          title: string;
+          body: string;
+          imageUrl?: string;
+          category?: string;
+          authorName?: string;
+          readTimeMinutes?: number;
+          isPublished?: boolean;
+        };
+      if (!title) throw AppError.badRequest('title is required');
+      if (!body) throw AppError.badRequest('body is required');
+      const article = await this.adminService.createArticle(tenantOf(req), {
+        title,
+        body,
+        imageUrl,
+        category,
+        authorName,
+        readTimeMinutes,
+        isPublished,
+      });
+      res.status(201).json(success(article, 'Article created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateArticle = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { title, body, imageUrl, category, authorName, readTimeMinutes, isPublished } =
+        req.body as {
+          title?: string;
+          body?: string;
+          imageUrl?: string;
+          category?: string;
+          authorName?: string;
+          readTimeMinutes?: number;
+          isPublished?: boolean;
+        };
+      const article = await this.adminService.updateArticle(tenantOf(req), id, {
+        title,
+        body,
+        imageUrl,
+        category,
+        authorName,
+        readTimeMinutes,
+        isPublished,
+      });
+      res.status(200).json(success(article, 'Article updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // ── Women's health categories ─────────────────────────────────────────
+
+  listWomenHealthCategories = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const categories = await this.adminService.listWomenHealthCategories(tenantOf(req));
+      res.status(200).json(success(categories));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createWomenHealthCategory = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { label, icon, colorStart, colorEnd, description, facts, tips, isPublished } =
+        req.body as {
+          label: string;
+          icon: string;
+          colorStart: string;
+          colorEnd: string;
+          description: string;
+          facts?: string[];
+          tips?: { title: string; body: string }[];
+          isPublished?: boolean;
+        };
+      if (!label) throw AppError.badRequest('label is required');
+      if (!description) throw AppError.badRequest('description is required');
+      const category = await this.adminService.createWomenHealthCategory(tenantOf(req), {
+        label,
+        icon,
+        colorStart,
+        colorEnd,
+        description,
+        facts,
+        tips,
+        isPublished,
+      });
+      res.status(201).json(success(category, "Women's health category created"));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateWomenHealthCategory = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { label, icon, colorStart, colorEnd, description, facts, tips, isPublished } =
+        req.body as {
+          label?: string;
+          icon?: string;
+          colorStart?: string;
+          colorEnd?: string;
+          description?: string;
+          facts?: string[];
+          tips?: { title: string; body: string }[];
+          isPublished?: boolean;
+        };
+      const category = await this.adminService.updateWomenHealthCategory(tenantOf(req), id, {
+        label,
+        icon,
+        colorStart,
+        colorEnd,
+        description,
+        facts,
+        tips,
+        isPublished,
+      });
+      res.status(200).json(success(category, "Women's health category updated"));
     } catch (err) {
       next(err);
     }

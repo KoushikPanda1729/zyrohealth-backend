@@ -23,6 +23,13 @@ const ctrl = container.resolve(DoctorsController);
 router.get('/', (req, res, next) => {
   void ctrl.listDoctors(req, res, next);
 });
+
+// Static path registered before the "/:id" param route below, otherwise
+// Express would match "/favorites" as an :id.
+router.get('/favorites', verifyToken, attachRole, requireRole('patient'), (req, res, next) => {
+  void ctrl.listFavorites(req, res, next);
+});
+
 router.get('/:id', (req, res, next) => {
   void ctrl.getDoctorById(req, res, next);
 });
@@ -33,6 +40,25 @@ router.get('/:id/slots', (req, res, next) => {
 router.get('/:id/available-slots', (req, res, next) => {
   void ctrl.getAvailableSlots(req, res, next);
 });
+
+router.post(
+  '/:id/favorite',
+  verifyToken,
+  attachRole,
+  requireRole('patient'),
+  (req, res, next) => {
+    void ctrl.addFavorite(req, res, next);
+  },
+);
+router.delete(
+  '/:id/favorite',
+  verifyToken,
+  attachRole,
+  requireRole('patient'),
+  (req, res, next) => {
+    void ctrl.removeFavorite(req, res, next);
+  },
+);
 
 export { router as doctorsRouter };
 

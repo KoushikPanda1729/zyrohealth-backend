@@ -119,7 +119,8 @@ export class AiController {
   ): Promise<void> => {
     try {
       if (!req.user?.id) throw AppError.unauthorized();
-      const sessions = await this.aiService.listSessions(req.user.id);
+      const aiDoctorId = req.query['aiDoctorId'] as string | undefined;
+      const sessions = await this.aiService.listSessions(req.user.id, aiDoctorId);
       res.status(200).json(success(sessions));
     } catch (err) {
       next(err);

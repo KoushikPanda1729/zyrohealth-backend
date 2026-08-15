@@ -57,6 +57,13 @@ import { MedicineShopLeaveRequest } from '../entities/MedicineShopLeaveRequest';
 import { MedicineShopStaffProfile } from '../entities/MedicineShopStaffProfile';
 import { MedicineShopPayrollRecord } from '../entities/MedicineShopPayrollRecord';
 import { MedicineShopWhatsAppConfig } from '../entities/MedicineShopWhatsAppConfig';
+import { Hospital } from '../entities/Hospital';
+import { AmbulanceRequest } from '../entities/AmbulanceRequest';
+import { Article } from '../entities/Article';
+import { ArticleBookmark } from '../entities/ArticleBookmark';
+import { DoctorFavorite } from '../entities/DoctorFavorite';
+import { WomenHealthCategory } from '../entities/WomenHealthCategory';
+import { MenstrualCycleLog } from '../entities/MenstrualCycleLog';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -124,6 +131,13 @@ export const AppDataSource = new DataSource({
     MedicineShopStaffProfile,
     MedicineShopPayrollRecord,
     MedicineShopWhatsAppConfig,
+    Hospital,
+    AmbulanceRequest,
+    Article,
+    ArticleBookmark,
+    DoctorFavorite,
+    WomenHealthCategory,
+    MenstrualCycleLog,
   ],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],

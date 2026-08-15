@@ -668,4 +668,61 @@ router.get(
   },
 );
 
+// Hospitals
+router.get('/hospitals', requirePermission('hospitals.view'), (req, res, next) => {
+  void ctrl.listHospitals(req, res, next);
+});
+router.post('/hospitals', requirePermission('hospitals.manage'), (req, res, next) => {
+  void ctrl.createHospital(req, res, next);
+});
+router.patch('/hospitals/:id', requirePermission('hospitals.manage'), (req, res, next) => {
+  void ctrl.updateHospital(req, res, next);
+});
+
+// Ambulance requests
+router.get('/ambulance-requests', requirePermission('ambulance.view'), (req, res, next) => {
+  void ctrl.listAmbulanceRequests(req, res, next);
+});
+router.patch(
+  '/ambulance-requests/:id',
+  requirePermission('ambulance.manage'),
+  (req, res, next) => {
+    void ctrl.updateAmbulanceRequestStatus(req, res, next);
+  },
+);
+
+// Articles
+router.get('/articles', requirePermission('articles.view'), (req, res, next) => {
+  void ctrl.listArticles(req, res, next);
+});
+router.post('/articles', requirePermission('articles.manage'), (req, res, next) => {
+  void ctrl.createArticle(req, res, next);
+});
+router.patch('/articles/:id', requirePermission('articles.manage'), (req, res, next) => {
+  void ctrl.updateArticle(req, res, next);
+});
+
+// Women's health categories
+router.get(
+  '/women-health-categories',
+  requirePermission('women_health.view'),
+  (req, res, next) => {
+    void ctrl.listWomenHealthCategories(req, res, next);
+  },
+);
+router.post(
+  '/women-health-categories',
+  requirePermission('women_health.manage'),
+  (req, res, next) => {
+    void ctrl.createWomenHealthCategory(req, res, next);
+  },
+);
+router.patch(
+  '/women-health-categories/:id',
+  requirePermission('women_health.manage'),
+  (req, res, next) => {
+    void ctrl.updateWomenHealthCategory(req, res, next);
+  },
+);
+
 export { router as adminRouter };
