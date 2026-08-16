@@ -64,6 +64,8 @@ import { ArticleBookmark } from '../entities/ArticleBookmark';
 import { DoctorFavorite } from '../entities/DoctorFavorite';
 import { WomenHealthCategory } from '../entities/WomenHealthCategory';
 import { MenstrualCycleLog } from '../entities/MenstrualCycleLog';
+import { PlatformAppConfig } from '../entities/PlatformAppConfig';
+import { Banner } from '../entities/Banner';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -138,6 +140,8 @@ export const AppDataSource = new DataSource({
     DoctorFavorite,
     WomenHealthCategory,
     MenstrualCycleLog,
+    PlatformAppConfig,
+    Banner,
   ],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],

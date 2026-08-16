@@ -4,6 +4,7 @@ import { PlatformController } from './platform.controller';
 import { verifyToken } from '../../middleware/verifyToken.middleware';
 import { attachRole } from '../../middleware/attachRole.middleware';
 import { requireRole } from '../../middleware/requireRole.middleware';
+import { uploadMiddleware } from '../../middleware/upload.middleware';
 
 const router = Router();
 const ctrl = container.resolve(PlatformController);
@@ -86,5 +87,41 @@ router.patch(
     void ctrl.togglePlatformSupportActive(req, res, next);
   },
 );
+
+// Global mobile app config (Home screen top tabs / quick-actions) — read
+// by both the health-admin config page and (indirectly, via the separate
+// public modules/app-config router) the mobile app itself.
+router.get('/config', canView, (req, res, next) => {
+  void ctrl.getAppConfig(req, res, next);
+});
+router.patch('/config', canManage, (req, res, next) => {
+  void ctrl.updateAppConfig(req, res, next);
+});
+
+// Home screen promo banners — managed alongside the App Config page,
+// shown to every patient regardless of tenant (see modules/banners's
+// public router for the mobile-facing read side).
+router.get('/banners', canView, (req, res, next) => {
+  void ctrl.listBanners(req, res, next);
+});
+router.post(
+  '/banners',
+  canManage,
+  uploadMiddleware.single('image'),
+  (req, res, next) => {
+    void ctrl.createBanner(req, res, next);
+  },
+);
+router.patch(
+  '/banners/:id',
+  canManage,
+  uploadMiddleware.single('image'),
+  (req, res, next) => {
+    void ctrl.updateBanner(req, res, next);
+  },
+);
+router.delete('/banners/:id', canManage, (req, res, next) => {
+  void ctrl.deleteBanner(req, res, next);
+});
 
 export { router as platformRouter };

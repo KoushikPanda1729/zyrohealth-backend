@@ -37,6 +37,8 @@ import { hospitalsRouter } from './modules/hospitals/hospitals.routes';
 import { ambulanceRouter } from './modules/ambulance/ambulance.routes';
 import { articlesRouter } from './modules/articles/articles.routes';
 import { womenHealthRouter } from './modules/women-health/women-health.routes';
+import { appConfigRouter } from './modules/app-config/app-config.routes';
+import { bannersRouter } from './modules/banners/banners.routes';
 import { shopRouter } from './modules/shop/shop.routes';
 import { patientFlowRouter } from './modules/patient-flow/patient-flow.routes';
 import { PaymentsController } from './modules/payments/payments.controller';
@@ -164,6 +166,8 @@ export function createApp(): Express {
   app.use('/api/ambulance-requests', ambulanceRouter);
   app.use('/api/articles', articlesRouter);
   app.use('/api/women-health', womenHealthRouter);
+  app.use('/api/app-config', appConfigRouter);
+  app.use('/api/banners', bannersRouter);
   app.use('/api/ai', aiRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/platform', platformRouter);

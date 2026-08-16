@@ -1,4 +1,4 @@
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -14,16 +14,23 @@ import {
   MedicineShopPayout,
   MedicineShopPayoutStatus,
 } from '../../entities/MedicineShopPayout';
+import { PlatformAppConfig } from '../../entities/PlatformAppConfig';
+import { Banner } from '../../entities/Banner';
 import { AppError } from '../../utils/app-error';
 import {
   generateUniqueSubdomain,
   isValidSubdomain,
 } from '../../utils/subdomain.util';
 import { AuthService } from '../auth/auth.service';
+import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
+import { STORAGE_PROVIDER } from '../../config/container';
 
 @injectable()
 export class PlatformService {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
+  ) {}
 
   private async assertKnownPermissionKeys(keys: string[]): Promise<void> {
     if (keys.length === 0) return;
@@ -678,5 +685,114 @@ export class PlatformService {
     if (!user) throw AppError.notFound('Platform support account');
     user.isActive = !user.isActive;
     return repo.save(user);
+  }
+
+  // ── Global app config (mobile Home screen tabs/quick-actions) ──────────
+  // Single row, get-or-create so a missing/deleted row never 500s — the
+  // migration seeds one, but this is a safety net.
+
+  async getAppConfig(): Promise<PlatformAppConfig> {
+    const repo = AppDataSource.getRepository(PlatformAppConfig);
+    const existing = await repo.find({ take: 1 });
+    if (existing.length > 0) return existing[0];
+    return repo.save(repo.create());
+  }
+
+  async updateAppConfig(
+    data: Partial<{
+      topTabHealth: boolean;
+      topTabAiDoctor: boolean;
+      topTabWomen: boolean;
+      quickActionDoctor: boolean;
+      quickActionPharmacy: boolean;
+      quickActionPrescription: boolean;
+      quickActionHospital: boolean;
+      quickActionAmbulance: boolean;
+      sectionPromoBanner: boolean;
+      sectionTopDoctors: boolean;
+      sectionHealthArticles: boolean;
+      bottomNavMessage: boolean;
+      bottomNavCalendar: boolean;
+      bottomNavProfile: boolean;
+    }>,
+  ): Promise<PlatformAppConfig> {
+    const config = await this.getAppConfig();
+    // The controller destructures every possible field from req.body, so
+    // fields the client didn't send arrive here as explicit `undefined` —
+    // Object.assign would still copy those over (it doesn't skip
+    // undefined-valued keys) and wipe them off the in-memory/returned
+    // entity, even though TypeORM's save() itself ignores undefined
+    // columns when building the UPDATE. Filter them out first so the
+    // response actually reflects the full row.
+    const defined = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined),
+    );
+    Object.assign(config, defined);
+    return AppDataSource.getRepository(PlatformAppConfig).save(config);
+  }
+
+  // ── Banners (Home screen promo carousel) ────────────────────────────────
+  // Global, same scope as PlatformAppConfig — managed on the App Config
+  // page, shown to every patient regardless of tenant.
+
+  async listBanners(): Promise<Banner[]> {
+    return AppDataSource.getRepository(Banner).find({
+      order: { sortOrder: 'ASC', createdAt: 'DESC' },
+    });
+  }
+
+  async createBanner(
+    data: {
+      title: string;
+      ctaText?: string;
+      ctaLink?: string;
+      backgroundColor?: string;
+      sortOrder?: number;
+      isPublished?: boolean;
+    },
+    file?: Express.Multer.File,
+  ): Promise<Banner> {
+    const repo = AppDataSource.getRepository(Banner);
+    let imageUrl: string | undefined;
+    if (file) {
+      const ext = file.originalname.split('.').pop() ?? 'jpg';
+      const key = `banners/${Date.now()}.${ext}`;
+      imageUrl = await this.storage.upload(key, file.buffer, file.mimetype);
+    }
+    return repo.save(repo.create({ ...data, imageUrl }));
+  }
+
+  async updateBanner(
+    id: string,
+    data: Partial<{
+      title: string;
+      ctaText: string;
+      ctaLink: string;
+      backgroundColor: string;
+      sortOrder: number;
+      isPublished: boolean;
+    }>,
+    file?: Express.Multer.File,
+  ): Promise<Banner> {
+    const repo = AppDataSource.getRepository(Banner);
+    const banner = await repo.findOne({ where: { id } });
+    if (!banner) throw AppError.notFound('Banner');
+    if (file) {
+      const ext = file.originalname.split('.').pop() ?? 'jpg';
+      const key = `banners/${Date.now()}.${ext}`;
+      banner.imageUrl = await this.storage.upload(key, file.buffer, file.mimetype);
+    }
+    const defined = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined),
+    );
+    Object.assign(banner, defined);
+    return repo.save(banner);
+  }
+
+  async deleteBanner(id: string): Promise<void> {
+    const repo = AppDataSource.getRepository(Banner);
+    const banner = await repo.findOne({ where: { id } });
+    if (!banner) throw AppError.notFound('Banner');
+    await repo.remove(banner);
   }
 }

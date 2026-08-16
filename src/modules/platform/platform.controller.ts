@@ -411,4 +411,144 @@ export class PlatformController {
       next(err);
     }
   };
+
+  getAppConfig = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const config = await this.platformService.getAppConfig();
+      res.status(200).json(success(config));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateAppConfig = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const {
+        topTabHealth,
+        topTabAiDoctor,
+        topTabWomen,
+        quickActionDoctor,
+        quickActionPharmacy,
+        quickActionPrescription,
+        quickActionHospital,
+        quickActionAmbulance,
+        sectionPromoBanner,
+        sectionTopDoctors,
+        sectionHealthArticles,
+        bottomNavMessage,
+        bottomNavCalendar,
+        bottomNavProfile,
+      } = req.body as {
+        topTabHealth?: boolean;
+        topTabAiDoctor?: boolean;
+        topTabWomen?: boolean;
+        quickActionDoctor?: boolean;
+        quickActionPharmacy?: boolean;
+        quickActionPrescription?: boolean;
+        quickActionHospital?: boolean;
+        quickActionAmbulance?: boolean;
+        sectionPromoBanner?: boolean;
+        sectionTopDoctors?: boolean;
+        sectionHealthArticles?: boolean;
+        bottomNavMessage?: boolean;
+        bottomNavCalendar?: boolean;
+        bottomNavProfile?: boolean;
+      };
+      const config = await this.platformService.updateAppConfig({
+        topTabHealth,
+        topTabAiDoctor,
+        topTabWomen,
+        quickActionDoctor,
+        quickActionPharmacy,
+        quickActionPrescription,
+        quickActionHospital,
+        quickActionAmbulance,
+        sectionPromoBanner,
+        sectionTopDoctors,
+        sectionHealthArticles,
+        bottomNavMessage,
+        bottomNavCalendar,
+        bottomNavProfile,
+      });
+      res.status(200).json(success(config, 'App configuration updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listBanners = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const banners = await this.platformService.listBanners();
+      res.status(200).json(success(banners));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createBanner = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { title, ctaText, ctaLink, backgroundColor, sortOrder, isPublished } = req.body as {
+        title: string;
+        ctaText?: string;
+        ctaLink?: string;
+        backgroundColor?: string;
+        sortOrder?: string;
+        isPublished?: string;
+      };
+      if (!title) throw AppError.badRequest('title is required');
+      const banner = await this.platformService.createBanner(
+        {
+          title,
+          ctaText,
+          ctaLink,
+          backgroundColor,
+          sortOrder: sortOrder !== undefined ? Number(sortOrder) : undefined,
+          isPublished: isPublished !== undefined ? isPublished === 'true' : undefined,
+        },
+        req.file,
+      );
+      res.status(201).json(success(banner, 'Banner created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updateBanner = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { title, ctaText, ctaLink, backgroundColor, sortOrder, isPublished } = req.body as {
+        title?: string;
+        ctaText?: string;
+        ctaLink?: string;
+        backgroundColor?: string;
+        sortOrder?: string;
+        isPublished?: string;
+      };
+      const banner = await this.platformService.updateBanner(
+        id,
+        {
+          title,
+          ctaText,
+          ctaLink,
+          backgroundColor,
+          sortOrder: sortOrder !== undefined ? Number(sortOrder) : undefined,
+          isPublished: isPublished !== undefined ? isPublished === 'true' : undefined,
+        },
+        req.file,
+      );
+      res.status(200).json(success(banner, 'Banner updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deleteBanner = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      await this.platformService.deleteBanner(id);
+      res.status(200).json(success(null, 'Banner deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
 }
