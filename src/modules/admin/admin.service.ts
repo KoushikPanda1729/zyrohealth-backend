@@ -2,7 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import { In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { AppDataSource } from '../../config/database';
-import { User, UserRole } from '../../entities/User';
+import { User, UserRole, ShopStaffRole } from '../../entities/User';
 import { DoctorProfile, ApprovalStatus } from '../../entities/DoctorProfile';
 import {
   DoctorAvailability,
@@ -2040,6 +2040,15 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     if (!shop) throw AppError.notFound('Medicine shop');
 
     const userRepo = AppDataSource.getRepository(User);
+    const existingOwner = await userRepo.findOne({
+      where: { shopId: shop.id, role: UserRole.SHOP },
+    });
+    if (existingOwner) {
+      throw AppError.conflict(
+        'This shop already has a login — invite additional staff from the shop\'s own Staff page instead',
+      );
+    }
+
     const existing = await userRepo.findOne({ where: { email: data.email } });
     if (existing) throw AppError.conflict('Email already in use');
 
@@ -2054,6 +2063,12 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       role: UserRole.SHOP,
       tenantId,
       shopId: shop.id,
+      // This admin-panel invite path only ever runs once per shop — to
+      // create the shop's very first login (the "Invite Login" action is
+      // only offered while a shop has none). Every login after that goes
+      // through the shop's own Staff page (inviteShopStaff), which
+      // correctly tags itself CASHIER — so this one is always the owner.
+      shopStaffRole: ShopStaffRole.OWNER,
       isActive: true,
     });
     await userRepo.save(user);
