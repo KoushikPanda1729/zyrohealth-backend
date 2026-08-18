@@ -52,8 +52,15 @@ export class AuthService {
   ) {}
 
   // Public — also used by PlatformService for super-admin tenant impersonation.
+  // `actingShopId` is only ever set for a tenant admin's "Open Full View"
+  // into their OWN in-house shop (see AdminService.impersonateShop) — the
+  // token stays the admin's real identity, just carrying an extra claim
+  // that attachRole.middleware.ts uses to grant shop-portal access for
+  // that one shop. Persisted on the refresh token too so it survives an
+  // access-token refresh (see refreshAccessToken below).
   async issueTokens(
     user: User,
+    opts?: { actingShopId?: string },
   ): Promise<{ accessToken: string; refreshToken: string }> {
     const accessToken = jwt.sign(
       {
@@ -61,6 +68,7 @@ export class AuthService {
         phone: user.phoneNumber,
         email: user.email,
         id: user.id,
+        ...(opts?.actingShopId ? { actingShopId: opts.actingShopId } : {}),
       },
       env.JWT_SECRET,
       { expiresIn: '1h' },
@@ -80,6 +88,7 @@ export class AuthService {
         userId: user.id,
         tokenHash,
         expiresAt,
+        actingShopId: opts?.actingShopId ?? null,
       },
     );
     await AppDataSource.getRepository(RefreshToken).save(refreshTokenRecord);
@@ -476,7 +485,9 @@ export class AuthService {
     record.revokedAt = new Date();
     await AppDataSource.getRepository(RefreshToken).save(record);
 
-    const { accessToken, refreshToken } = await this.issueTokens(record.user);
+    const { accessToken, refreshToken } = await this.issueTokens(record.user, {
+      actingShopId: record.actingShopId ?? undefined,
+    });
     return { accessToken, refreshToken };
   }
 

@@ -2175,20 +2175,43 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     return { user, inviteLink };
   }
 
-  // Issues a real session for a shop's own login, letting a tenant admin
-  // jump straight into that shop's full portal view (dashboard, full
-  // inventory tools) without needing that shop's credentials. The caller
-  // is responsible for keeping this out of the admin's own localStorage
-  // session (see the frontend's quick-view-in-a-new-tab flow) — this just
-  // issues tokens, same as any other login.
+  // Lets a tenant admin jump straight into a shop's full portal view
+  // (dashboard, full inventory tools) without needing that shop's
+  // credentials. The caller is responsible for keeping this out of the
+  // admin's own localStorage session (see the frontend's
+  // quick-view-in-a-new-tab flow) — this just issues tokens, same as any
+  // other login.
+  //
+  // An in-house shop IS the tenant admin's own pharmacy — they're not
+  // "impersonating" anyone, so this issues a token for the ADMIN's OWN
+  // User row (with an actingShopId claim granting shop access; see
+  // attachRole.middleware.ts) rather than a separate shop-owner account.
+  // That keeps the shop portal's Account page truthfully showing the
+  // admin themselves, not some other login. A third-party shop has its
+  // own real owner/staff — that case is unchanged, issuing a token for
+  // that shop's own login.
   async impersonateShop(
     tenantId: string,
     shopId: string,
-  ): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+    requestingAdminId: string,
+  ): Promise<{ user: User & { actingShopId?: string }; accessToken: string; refreshToken: string }> {
     const shop = await AppDataSource.getRepository(MedicineShop).findOne({
       where: { id: shopId, tenantId },
     });
     if (!shop) throw AppError.notFound('Medicine shop');
+
+    if (shop.ownershipType === MedicineShopOwnershipType.IN_HOUSE) {
+      const admin = await AppDataSource.getRepository(User).findOne({
+        where: { id: requestingAdminId, tenantId },
+      });
+      if (!admin) throw AppError.notFound('Admin account');
+
+      const { accessToken, refreshToken } = await this.authService.issueTokens(
+        admin,
+        { actingShopId: shop.id },
+      );
+      return { user: { ...admin, actingShopId: shop.id }, accessToken, refreshToken };
+    }
 
     const user = await AppDataSource.getRepository(User).findOne({
       where: { shopId, tenantId, role: UserRole.SHOP },

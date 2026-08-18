@@ -20,6 +20,9 @@ declare global {
         isActive?: boolean;
         canCreateAgent?: boolean;
         fullUser?: unknown;
+        // Only present on a tenant admin's "Open Full View" into their own
+        // in-house shop — see attachRole.middleware.ts.
+        actingShopId?: string;
       };
     }
   }
@@ -41,9 +44,15 @@ export function verifyToken(
       uid: string;
       phone: string;
       id?: string;
+      actingShopId?: string;
     };
 
-    req.user = { uid: payload.uid, phone: payload.phone, id: payload.id };
+    req.user = {
+      uid: payload.uid,
+      phone: payload.phone,
+      id: payload.id,
+      actingShopId: payload.actingShopId,
+    };
     next();
   } catch {
     next(AppError.unauthorized());

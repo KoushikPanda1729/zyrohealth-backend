@@ -16,8 +16,11 @@ export enum MedicineShopOwnershipType {
 //
 // `ownershipType` distinguishes a tenant's OWN in-house pharmacy (they run
 // it themselves) from a third-party vendor pharmacy they've merely
-// onboarded to quote prescriptions — purely informational today (labeling/
-// filtering), doesn't change the quoting/auto-mode mechanics.
+// onboarded to quote prescriptions — mostly labeling/filtering, but ALSO
+// what "Open Full View" (AdminService.impersonateShop) checks to decide
+// whether to log the admin in as themselves (in_house) or as that shop's
+// own separate login (third_party). Doesn't change quoting/auto-mode
+// mechanics.
 @Entity('medicine_shops')
 export class MedicineShop extends BaseEntity {
   @Column({ name: 'tenant_id' })

@@ -1395,7 +1395,12 @@ export class AdminController {
   ): Promise<void> => {
     try {
       const { id } = req.params as { id: string };
-      const result = await this.adminService.impersonateShop(tenantOf(req), id);
+      if (!req.user?.id) throw AppError.unauthorized();
+      const result = await this.adminService.impersonateShop(
+        tenantOf(req),
+        id,
+        req.user.id,
+      );
       res.status(200).json(success(result));
     } catch (err) {
       next(err);
