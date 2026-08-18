@@ -21,6 +21,13 @@ export type WhatsAppFlowNodeType =
   | 'platform_payment_method'
   | 'platform_create_booking'
   | 'platform_order_status'
+  // Offers to cancel or reschedule the patient's most recent upcoming
+  // booking — reuses the same validated cancelBooking() service logic
+  // (including its "not within 2 hours of the appointment" rule) real
+  // patients already get everywhere else a booking can be cancelled.
+  // Reschedule = cancel + hand off into platform_slot_list for the same
+  // doctor, via the 'reschedule' sourceHandle.
+  | 'platform_manage_booking'
   // Prescription-quote-marketplace nodes — channel-agnostic on purpose:
   // the exact same node types run this journey whether the turn came from
   // WhatsApp (WhatsAppFlowSink) or the mobile app (AppFlowSink), see

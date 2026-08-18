@@ -10,6 +10,7 @@ import { DoctorProfile } from '../../entities/DoctorProfile';
 import { VoiceAgentPhoneNumber } from '../../entities/VoiceAgentPhoneNumber';
 import { MedicineOrderStatus } from '../../entities/MedicineOrder';
 import { WhatsAppFlowDefinition } from '../../entities/WhatsAppFlow';
+import { WhatsAppMessageEvent } from '../../entities/WhatsAppSession';
 import { WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
 import { PrescriptionUploadStatus } from '../../entities/PrescriptionUploadRequest';
 import { QuotedMedicineItem } from '../../entities/MedicineShopQuote';
@@ -413,11 +414,15 @@ export class AdminController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const { name } = req.body as { name: string };
+      const { name, definition } = req.body as {
+        name: string;
+        definition?: WhatsAppFlowDefinition;
+      };
       if (!name) throw AppError.badRequest('name is required');
       const flow = await this.adminService.createWhatsAppFlow(
         tenantOf(req),
         name,
+        definition,
       );
       res.status(201).json(success(flow, 'Flow created'));
     } catch (err) {
@@ -530,6 +535,36 @@ export class AdminController {
       const { id } = req.params as { id: string };
       await this.adminService.deleteWhatsAppFlow(tenantOf(req), id);
       res.status(200).json(success(null, 'Flow deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  previewWhatsAppFlow = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { definition, text, sessionState } = req.body as {
+        definition: WhatsAppFlowDefinition;
+        text: string;
+        sessionState?: {
+          flowNodeId?: string | null;
+          activeFlowId?: string | null;
+          flowVariables?: Record<string, unknown>;
+          messages?: WhatsAppMessageEvent[];
+        };
+      };
+      if (!definition) throw AppError.badRequest('definition is required');
+      if (typeof text !== 'string') throw AppError.badRequest('text is required');
+      const result = await this.adminService.previewWhatsAppFlow(
+        tenantOf(req),
+        definition,
+        text,
+        sessionState,
+      );
+      res.status(200).json(success(result));
     } catch (err) {
       next(err);
     }

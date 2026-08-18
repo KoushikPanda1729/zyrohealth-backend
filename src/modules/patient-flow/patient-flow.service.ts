@@ -76,6 +76,16 @@ export class PatientFlowService {
     // shouldn't leave behind a "checking" bubble with no reply either,
     // same as the assistant side already skips repeating itself.
     const messagesBeforeTurn = session.messages.length;
+
+    // FlowSessionNotifier.build() auto-sends this exact turn once, only
+    // when opening a brand-new conversation (see flow_session_provider.dart)
+    // — a synthetic bootstrap trigger, not something the patient actually
+    // typed, so it shouldn't show up as a "start" bubble. A patient
+    // manually typing "start" later (a real GREETING_WORDS reset) is a
+    // real action and stays visible — hence the messagesBeforeTurn guard.
+    const isBootstrapStart =
+      messagesBeforeTurn === 0 && text.trim().toLowerCase() === 'start';
+
     const { result, steps, silent } = await this.flowEngine.processAppTurn(
       session,
       text,
@@ -84,7 +94,7 @@ export class PatientFlowService {
     );
 
     if (!silent) {
-      if (!isSilentPoll) {
+      if (!isSilentPoll && !isBootstrapStart) {
         this.appendUserMessage(session, text, media, messagesBeforeTurn);
       }
       session.lastSteps = steps;

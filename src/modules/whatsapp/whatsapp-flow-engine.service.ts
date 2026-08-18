@@ -18,7 +18,7 @@ import {
   MedicineOrderPaymentStatus,
   MedicineOrderPaymentMethod,
 } from '../../entities/MedicineOrder';
-import { Booking } from '../../entities/Booking';
+import { Booking, BookingStatus } from '../../entities/Booking';
 import {
   PrescriptionUploadRequest,
   PrescriptionUploadStatus,
@@ -40,12 +40,30 @@ import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alert
 import { markSiblingQuotesNotSelected } from '../medicine-shops/quote-processing.util';
 import { createOrderFromQuote } from '../medicine-shops/medicine-order.util';
 import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
+import { PaymentsService } from '../payments/payments.service';
 import { MedicineOrdersService } from '../medicine-orders/medicine-orders.service';
 import { getValidNextStatuses } from '../../utils/order-status-transitions';
 
 const MAX_HOPS_PER_TURN = 20;
 const MAX_SLOT_OPTIONS = 6;
 const MAX_SLOT_SEARCH_DAYS = 14;
+
+// Typing any of these always restarts the flow from its `start` node, even
+// mid-way through a branch (e.g. midway through booking a doctor) — same
+// "always get back to the main menu" convention as the hardcoded WhatsApp
+// bot's own GREETING_WORDS, just applied here so it works identically on
+// both channels (WhatsApp custom-flow mode and the app, which has no
+// hardcoded bot of its own to fall back on).
+const GREETING_WORDS = new Set([
+  'hi',
+  'hello',
+  'hey',
+  'menu',
+  'start',
+  'restart',
+  'hii',
+  'helo',
+]);
 
 type NodeOutcome =
   | { action: 'advance'; nextNodeId: string }
@@ -208,6 +226,7 @@ export class WhatsAppFlowEngineService {
     private readonly shopAlerts: MedicineShopAlertsService,
     private readonly medicineOrderPayments: MedicineOrderPaymentsService,
     private readonly medicineOrders: MedicineOrdersService,
+    private readonly payments: PaymentsService,
   ) {}
 
   // Returns 'continue' if the session is still mid-flow (or parked waiting for
@@ -255,6 +274,11 @@ export class WhatsAppFlowEngineService {
       const list = edgesBySource.get(edge.source) ?? [];
       list.push(edge);
       edgesBySource.set(edge.source, list);
+    }
+
+    if (GREETING_WORDS.has(text.trim().toLowerCase())) {
+      session.flowNodeId = null;
+      session.flowVariables = {};
     }
 
     const currentFlowNodeId = session.flowNodeId;
@@ -515,10 +539,13 @@ export class WhatsAppFlowEngineService {
         return this.executePaymentMethod(session, inputText, consumeInput, outgoing, sink);
 
       case 'platform_create_booking':
-        return this.executeCreateBooking(session, outgoing, sink);
+        return this.executeCreateBooking(session, inputText, consumeInput, outgoing, sink);
 
       case 'platform_order_status':
         return this.executeOrderStatus(session, outgoing, sink);
+
+      case 'platform_manage_booking':
+        return this.executeManageBooking(session, inputText, consumeInput, outgoing, sink);
 
       // ── Prescription-quote-marketplace nodes — channel-agnostic on
       // purpose, see WhatsAppFlowNodeType's doc comment. ─────────────────
@@ -863,26 +890,21 @@ export class WhatsAppFlowEngineService {
 
   private async executeCreateBooking(
     session: FlowSession,
+    inputText: string,
+    consumeInput: boolean,
     outgoing: WhatsAppFlowEdge[],
     sink: FlowSink,
   ): Promise<NodeOutcome> {
     const vars = session.flowVariables;
     const doctorProfileId = vars['doctorProfileId'] as string | undefined;
+    const doctorName = vars['doctorName'] as string | undefined;
     const scheduledAtIso = vars['scheduledAtIso'] as string | undefined;
     const consultationType = vars['consultationType'] as
       | 'video'
       | 'offline'
       | undefined;
     const payOnline = vars['payOnline'] as boolean | undefined;
-
-    if (!doctorProfileId || !scheduledAtIso || !consultationType) {
-      await this.dispatchText(
-        session,
-        sink,
-        'Something went wrong building your booking — missing required details. Please start over.',
-      );
-      return this.advanceTo(outgoing[0]);
-    }
+    const withDoctor = doctorName ? ` with ${doctorName}` : '';
 
     if (!session.userId) {
       await this.dispatchText(
@@ -893,32 +915,226 @@ export class WhatsAppFlowEngineService {
       return this.advanceTo(outgoing[0]);
     }
 
-    try {
-      await this.bookings.createBooking(
-        session.userId,
-        {
-          doctorId: doctorProfileId,
-          scheduledAt: scheduledAtIso,
-          consultationType,
-        },
-        { skipPaymentLink: payOnline === false },
-      );
-      await this.dispatchText(
-        session,
-        sink,
-        payOnline === false
-          ? `✅ Booking confirmed! You can pay at the clinic during your visit.`
-          : `✅ Booking confirmed! Check the message above for your payment link to secure it.`,
-      );
-    } catch (err) {
-      await this.dispatchText(
-        session,
-        sink,
-        `Sorry, I couldn't complete that booking (${err instanceof Error ? err.message : 'please try again'}).`,
-      );
+    const bookingId = vars['__pendingBookingId'] as string | undefined;
+
+    // First entry — create the booking. For online payment this stays
+    // PENDING and does NOT get announced as "confirmed" yet: don't tell
+    // the patient the booking is confirmed before they've actually paid,
+    // same "hold, don't confirm on a tap alone" shape executeOrderPayment
+    // already uses for medicine orders.
+    if (!bookingId) {
+      if (!doctorProfileId || !scheduledAtIso || !consultationType) {
+        await this.dispatchText(
+          session,
+          sink,
+          'Something went wrong building your booking — missing required details. Please start over.',
+        );
+        return this.advanceTo(outgoing[0]);
+      }
+
+      try {
+        const booking = await this.bookings.createBooking(
+          session.userId,
+          {
+            doctorId: doctorProfileId,
+            scheduledAt: scheduledAtIso,
+            consultationType,
+          },
+          { skipPaymentLink: payOnline === false },
+        );
+        const tokenLine = booking.tokenNumber
+          ? `\nYour token number today: *#${booking.tokenNumber}*`
+          : '';
+
+        if (payOnline === false) {
+          await this.dispatchText(
+            session,
+            sink,
+            `✅ Booking confirmed${withDoctor}! You can pay at the clinic during your visit.` + tokenLine,
+          );
+          return this.advanceTo(outgoing[0]);
+        }
+
+        session.flowVariables = {
+          ...session.flowVariables,
+          __pendingBookingId: booking.id,
+          __pendingTokenLine: tokenLine,
+        };
+
+        if (booking.checkoutUrl) {
+          session.flowVariables = {
+            ...session.flowVariables,
+            lastAnnouncedCheckoutUrl: booking.checkoutUrl,
+          };
+          await sink.sendStructured('booking_payment', {
+            checkoutUrl: booking.checkoutUrl,
+            totalCents: booking.consultationFeeCents,
+            doctorName,
+          });
+          await this.dispatchText(
+            session,
+            sink,
+            `Complete payment above to secure your booking${withDoctor}. Reply "cancel" if you'd rather not.`,
+          );
+        } else {
+          await this.dispatchText(
+            session,
+            sink,
+            `Your slot is held${withDoctor}, but I couldn't generate a payment link right now — reply anything to retry, or pay from your bookings screen.`,
+          );
+        }
+        return { action: 'wait' };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'please try again';
+
+        // Rather than a dead-end error, offer to cancel/reschedule the
+        // booking that's actually blocking this one — reusing
+        // executeManageBooking's offer-and-branch logic wholesale via the
+        // 'conflict' edge, instead of duplicating it here. Matched by
+        // message text since createBooking() only throws a plain Error,
+        // not a structured/coded one.
+        if (/already have an active booking/i.test(message)) {
+          const doctorProfile = await AppDataSource.getRepository(
+            DoctorProfile,
+          ).findOne({ where: { id: doctorProfileId } });
+          const conflicting = doctorProfile
+            ? await AppDataSource.getRepository(Booking).findOne({
+                where: {
+                  patientId: session.userId,
+                  doctorId: doctorProfile.userId,
+                  status: In([
+                    BookingStatus.PENDING,
+                    BookingStatus.PAID,
+                    BookingStatus.ACTIVE,
+                  ]),
+                },
+              })
+            : null;
+
+          if (conflicting) {
+            session.flowVariables = {
+              ...session.flowVariables,
+              __forcedManageBookingId: conflicting.id,
+            };
+            await this.dispatchText(
+              session,
+              sink,
+              `You already have a booking with this doctor on ${conflicting.scheduledAt.toLocaleString('en-IN')}.`,
+            );
+            const edge = outgoing.find((e) => e.sourceHandle === 'conflict') ?? outgoing[0];
+            return this.advanceTo(edge);
+          }
+        }
+
+        await this.dispatchText(
+          session,
+          sink,
+          `Sorry, I couldn't complete that booking (${message}).`,
+        );
+        return this.advanceTo(outgoing[0]);
+      }
     }
 
-    return this.advanceTo(outgoing[0]);
+    // Re-entry (an "I've paid"/any nudge, or the app's own silent poll) —
+    // re-check the real booking row rather than trusting the tap itself;
+    // only Stripe's webhook (PaymentsService.processWebhookEvent) actually
+    // flips this to PAID.
+    const booking = await AppDataSource.getRepository(Booking).findOne({
+      where: { id: bookingId },
+    });
+    if (!booking) {
+      await this.dispatchText(session, sink, `Something went wrong finding your booking.`);
+      return { action: 'end' };
+    }
+
+    const tokenLine =
+      (session.flowVariables['__pendingTokenLine'] as string | undefined) ?? '';
+
+    if (
+      booking.status === BookingStatus.PAID ||
+      booking.status === BookingStatus.ACTIVE
+    ) {
+      await this.dispatchText(
+        session,
+        sink,
+        `✅ Booking confirmed${withDoctor}! Payment received.` + tokenLine,
+      );
+      return this.advanceTo(outgoing[0]);
+    }
+
+    if (booking.status === BookingStatus.CANCELLED) {
+      await this.dispatchText(session, sink, `This booking was cancelled.`);
+      return { action: 'end' };
+    }
+
+    if (consumeInput && inputText.trim().toLowerCase() === 'cancel') {
+      try {
+        await this.bookings.cancelBooking(
+          booking.id,
+          session.userId,
+          'patient',
+          'Cancelled by patient before payment',
+        );
+        await this.dispatchText(session, sink, `Booking cancelled.`);
+      } catch (err) {
+        await this.dispatchText(
+          session,
+          sink,
+          `Couldn't cancel that (${err instanceof Error ? err.message : 'please try again'}).`,
+        );
+      }
+      return { action: 'end' };
+    }
+
+    // The app's own passive poll (pull-to-refresh/auto-poll) — silent
+    // when nothing's new, same shape executeOrderPayment already uses.
+    const isPassivePoll = consumeInput && inputText.trim().toLowerCase() === 'checking';
+
+    try {
+      const { url } = await this.payments.initiatePayment(session.userId, {
+        bookingId: booking.id,
+        currency: 'inr',
+        platform: sink instanceof AppFlowSink ? 'app' : 'web',
+      });
+      const lastAnnounced = session.flowVariables['lastAnnouncedCheckoutUrl'] as
+        | string
+        | undefined;
+      const changed = lastAnnounced !== url;
+      const shouldAnnounce = changed || !isPassivePoll;
+      if (shouldAnnounce) {
+        session.flowVariables = {
+          ...session.flowVariables,
+          lastAnnouncedCheckoutUrl: url,
+        };
+        await sink.sendStructured('booking_payment', {
+          checkoutUrl: url,
+          totalCents: booking.consultationFeeCents,
+          doctorName,
+        });
+        // Only a genuinely NEW link gets its own text bubble — the card
+        // itself (re-rendered every re-entry, always at the newest
+        // position since only the latest booking_payment step stays
+        // visible) already says "payment required"/"not confirmed yet",
+        // so re-typing that in a plain text bubble on every nudge just
+        // piles up near-identical reminders.
+        if (changed) {
+          await this.dispatchText(
+            session,
+            sink,
+            `Complete payment above to secure your booking${withDoctor}.`,
+          );
+        }
+      }
+    } catch (err) {
+      if (!isPassivePoll) {
+        await this.dispatchText(
+          session,
+          sink,
+          `Couldn't refresh the payment link right now (${err instanceof Error ? err.message : 'please try again'}).`,
+        );
+      }
+    }
+    return { action: 'wait' };
   }
 
   private async executeOrderStatus(
@@ -960,6 +1176,159 @@ export class WhatsAppFlowEngineService {
     }
     await this.dispatchText(session, sink, lines.join('\n'));
     return this.advanceTo(outgoing[0]);
+  }
+
+  // Offers to cancel/reschedule the patient's most recent upcoming
+  // booking. `cancelBooking` (BookingsService) is the same method the
+  // mobile app's own "My Bookings" screen calls — same "not within 2
+  // hours of the appointment" validation applies here too, no separate
+  // rule to keep in sync.
+  private async executeManageBooking(
+    session: FlowSession,
+    inputText: string,
+    consumeInput: boolean,
+    outgoing: WhatsAppFlowEdge[],
+    sink: FlowSink,
+  ): Promise<NodeOutcome> {
+    const MANAGE_OPTIONS = [
+      { id: 'cancel', title: 'Cancel booking' },
+      { id: 'reschedule', title: 'Reschedule booking' },
+      { id: 'keep', title: 'No, keep it as is' },
+    ];
+    // Every "nothing to do here" case (no account, no booking to manage,
+    // patient chose to keep it) falls through the same edge — the admin
+    // only needs to wire 'cancel'/'reschedule' explicitly plus one more
+    // for everything else, not a 4th dedicated "no-op" handle.
+    const fallbackEdge = () =>
+      outgoing.find((e) => e.sourceHandle === 'keep') ?? outgoing[0];
+
+    if (!session.userId) {
+      return this.advanceTo(fallbackEdge());
+    }
+
+    if (consumeInput) {
+      const bookingId = session.flowVariables['__manageBookingId'] as
+        | string
+        | undefined;
+      if (!bookingId) return this.advanceTo(fallbackEdge());
+
+      const idx = matchOptionIndex(
+        inputText,
+        MANAGE_OPTIONS.map((o) => o.title),
+      );
+      const choice = idx !== undefined ? MANAGE_OPTIONS[idx] : undefined;
+
+      if (!choice) {
+        await this.dispatchOptions(
+          session,
+          sink,
+          'Please pick one of the options above.',
+          MANAGE_OPTIONS.map((o) => ({ id: o.id, title: o.title })),
+        );
+        return { action: 'wait' };
+      }
+
+      if (choice.id === 'keep') {
+        await this.dispatchText(session, sink, `No problem, your booking stays as is.`);
+        return this.advanceTo(fallbackEdge());
+      }
+
+      try {
+        const cancelled = await this.bookings.cancelBooking(
+          bookingId,
+          session.userId,
+          'patient',
+        );
+
+        if (choice.id === 'cancel') {
+          await this.dispatchText(session, sink, `✅ Your booking has been cancelled.`);
+          const edge = outgoing.find((e) => e.sourceHandle === 'cancel') ?? outgoing[0];
+          return this.advanceTo(edge);
+        }
+
+        // Reschedule — carry the same doctor into platform_slot_list for a
+        // fresh pick rather than making the patient choose specialty/
+        // doctor all over again.
+        const doctorProfile = await AppDataSource.getRepository(
+          DoctorProfile,
+        ).findOne({ where: { userId: cancelled.doctorId } });
+        session.flowVariables = {
+          ...session.flowVariables,
+          doctorProfileId: doctorProfile?.id,
+        };
+        await this.dispatchText(
+          session,
+          sink,
+          `Your old booking is cancelled — let's pick a new time with the same doctor.`,
+        );
+        const edge = outgoing.find((e) => e.sourceHandle === 'reschedule') ?? outgoing[0];
+        return this.advanceTo(edge);
+      } catch (err) {
+        await this.dispatchText(
+          session,
+          sink,
+          `Sorry, I couldn't do that (${err instanceof Error ? err.message : 'please try again'}).`,
+        );
+        const edge = outgoing.find((e) => e.sourceHandle === 'cancel') ?? outgoing[0];
+        return this.advanceTo(edge);
+      }
+    }
+
+    // A caller (executeCreateBooking's "you already have an active
+    // booking" conflict) can redirect here targeting one specific
+    // booking, rather than whichever one is latest overall — read-and-
+    // clear so it never leaks into a later, unrelated visit to this node
+    // in the same conversation.
+    const forcedBookingId = session.flowVariables['__forcedManageBookingId'] as
+      | string
+      | undefined;
+    if (forcedBookingId) {
+      const { __forcedManageBookingId: _consumed, ...rest } = session.flowVariables;
+      session.flowVariables = rest;
+    }
+
+    const booking = forcedBookingId
+      ? await AppDataSource.getRepository(Booking).findOne({ where: { id: forcedBookingId } })
+      : await AppDataSource.getRepository(Booking).findOne({
+          where: { patientId: session.userId },
+          order: { scheduledAt: 'DESC' },
+        });
+    const isManageable =
+      booking &&
+      ![BookingStatus.CANCELLED, BookingStatus.COMPLETED].includes(booking.status) &&
+      // A forced redirect (executeCreateBooking's conflict handoff) needs
+      // to resolve THIS specific blocking booking regardless of whether
+      // its scheduled time has already passed — createBooking()'s own
+      // duplicate check doesn't care about time either, only status, so a
+      // stale-but-still-"paid" booking can otherwise block new bookings
+      // forever with no way to clear it. The normal "Check Status" entry
+      // point still only offers to manage a genuinely upcoming booking.
+      (forcedBookingId || booking.scheduledAt.getTime() > Date.now());
+
+    if (!booking || !isManageable) {
+      // Silence here reads as a broken bot, especially reached directly
+      // from a "Manage My Booking" menu choice with no earlier message —
+      // platform_order_status's own entry path already says something
+      // first, but this node can't assume that's always how it got here.
+      await this.dispatchText(
+        session,
+        sink,
+        `You don't have any upcoming bookings to manage right now.`,
+      );
+      return this.advanceTo(fallbackEdge());
+    }
+
+    session.flowVariables = {
+      ...session.flowVariables,
+      __manageBookingId: booking.id,
+    };
+    await this.dispatchOptions(
+      session,
+      sink,
+      `Would you like to cancel or reschedule your upcoming booking on ${booking.scheduledAt.toLocaleString('en-IN')}?`,
+      MANAGE_OPTIONS.map((o) => ({ id: o.id, title: o.title })),
+    );
+    return { action: 'wait' };
   }
 
   // ── Prescription-quote-marketplace node implementations ─────────────
@@ -1500,7 +1869,15 @@ export class WhatsAppFlowEngineService {
             `${i + 1}) ${o.title}${o.description ? ` — ${o.description}` : ''}`,
         )
         .join('\n');
-    this.appendMessage(session, 'assistant', textLog);
+    // Attaching the same `options` step shape AppFlowSink.sendInteractive
+    // returns for the current turn — without this, the rich tappable
+    // buttons only ever exist for the one turn they were sent; the moment
+    // the app re-fetches persisted history (as it does after every reply),
+    // only the flattened text log survives and the buttons are gone.
+    this.appendMessage(session, 'assistant', textLog, {
+      stepType: 'options',
+      data: { text: body, options, listButtonLabel },
+    });
     await sink.sendInteractive(body, options, listButtonLabel);
   }
 
@@ -1508,10 +1885,16 @@ export class WhatsAppFlowEngineService {
     session: FlowSession,
     role: 'user' | 'assistant' | 'admin',
     content: string,
+    step?: { stepType: string; data: Record<string, unknown> },
   ): void {
     session.messages = [
       ...session.messages,
-      { role, content, timestamp: new Date().toISOString() },
+      {
+        role,
+        content,
+        timestamp: new Date().toISOString(),
+        ...(step ? { step } : {}),
+      },
     ];
   }
 }

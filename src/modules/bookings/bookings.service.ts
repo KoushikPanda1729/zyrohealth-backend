@@ -1,5 +1,5 @@
 import { injectable } from 'tsyringe';
-import { In } from 'typeorm';
+import { In, Between } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import { AccessToken } from 'livekit-server-sdk';
 import { AppDataSource } from '../../config/database';
@@ -28,28 +28,35 @@ export class BookingsService {
     private readonly payments: PaymentsService,
   ) {}
 
-  // Creates the Stripe checkout session for a just-created booking and sends
-  // it to the patient over WhatsApp, so they can pay straight from the chat
-  // without needing to open the app. Failures here must never break booking
-  // creation itself — the patient can still pay in-app as a fallback.
+  // Creates the Stripe checkout session for a just-created booking and
+  // returns its URL so the caller can show it wherever the patient
+  // actually is (WhatsApp AND the app both need this — see
+  // executeCreateBooking, which couldn't surface a link in-app at all
+  // before this returned anything). The WhatsApp text notification is a
+  // separate, additional nudge — only sent when a phone number exists —
+  // not the only way the link reaches the patient. Failures here must
+  // never break booking creation itself — the patient can still pay
+  // in-app as a fallback.
   private async sendPaymentLink(
     booking: Booking,
     patientId: string,
     phone?: string,
-  ): Promise<void> {
-    if (!phone || booking.consultationFeeCents <= 0) return;
+  ): Promise<string | undefined> {
+    if (booking.consultationFeeCents <= 0) return undefined;
     try {
       const { url } = await this.payments.initiatePayment(patientId, {
         bookingId: booking.id,
         currency: 'inr',
         platform: 'web',
       });
-      void this.whatsapp.notifyPaymentLink(booking, phone, url);
+      if (phone) void this.whatsapp.notifyPaymentLink(booking, phone, url);
+      return url;
     } catch (err) {
       console.error(
-        '[Bookings] Failed to create/send WhatsApp payment link:',
+        '[Bookings] Failed to create/send payment link:',
         err instanceof Error ? err.message : err,
       );
+      return undefined;
     }
   }
 
@@ -61,7 +68,7 @@ export class BookingsService {
     // Only the WhatsApp bot sets this, after the patient explicitly chooses
     // to pay offline (e.g. at the clinic).
     options: { skipPaymentLink?: boolean } = {},
-  ): Promise<Booking> {
+  ): Promise<Booking & { checkoutUrl?: string }> {
     const patient = await AppDataSource.getRepository(User).findOne({
       where: { id: patientId },
     });
@@ -133,6 +140,15 @@ export class BookingsService {
       }
     }
 
+    const dayStart = new Date(scheduledAt);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(scheduledAt);
+    dayEnd.setHours(23, 59, 59, 999);
+    const tokenNumber =
+      (await AppDataSource.getRepository(Booking).count({
+        where: { doctorId: doctorUserId, scheduledAt: Between(dayStart, dayEnd) },
+      })) + 1;
+
     const booking = AppDataSource.getRepository(Booking).create({
       tenantId,
       patientId,
@@ -145,16 +161,18 @@ export class BookingsService {
       aiSessionId: dto.aiSessionId,
       aiSummary,
       durationMinutes: 30,
+      tokenNumber,
     });
 
     const saved = await AppDataSource.getRepository(Booking).save(booking);
 
     void this.whatsapp.notifyBookingCreated(saved, patient.phoneNumber);
+    let checkoutUrl: string | undefined;
     if (!options.skipPaymentLink) {
-      void this.sendPaymentLink(saved, patientId, patient.phoneNumber);
+      checkoutUrl = await this.sendPaymentLink(saved, patientId, patient.phoneNumber);
     }
 
-    return saved;
+    return { ...saved, checkoutUrl };
   }
 
   // Booking.doctorId is the doctor's USER id, not their DoctorProfile id —

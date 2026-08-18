@@ -265,6 +265,15 @@ router.delete(
     void ctrl.deleteWhatsAppFlow(req, res, next);
   },
 );
+// Previews the definition straight from the request body — the canvas's
+// current (possibly unsaved) state, not a saved flow row — so no :id.
+router.post(
+  '/whatsapp/flows/preview',
+  requirePermission('whatsapp.manage_flows'),
+  (req, res, next) => {
+    void ctrl.previewWhatsAppFlow(req, res, next);
+  },
+);
 
 router.get(
   '/whatsapp/config',

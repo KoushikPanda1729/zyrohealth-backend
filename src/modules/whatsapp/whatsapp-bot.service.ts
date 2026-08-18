@@ -665,7 +665,7 @@ export class WhatsAppBotService {
     }
 
     try {
-      await this.bookings.createBooking(
+      const booking = await this.bookings.createBooking(
         session.userId,
         {
           doctorId: draft.doctorProfileId,
@@ -674,11 +674,19 @@ export class WhatsAppBotService {
         },
         { skipPaymentLink: !payOnline },
       );
+      const doctorName = draft.doctorOptions?.find(
+        (d) => d.profileId === draft.doctorProfileId,
+      )?.name;
+      const withDoctor = doctorName ? ` with ${doctorName}` : '';
+      const tokenLine = booking.tokenNumber
+        ? `\nYour token number today: *#${booking.tokenNumber}*`
+        : '';
       await this.reply(
         session,
-        payOnline
-          ? `✅ Booking confirmed for ${draft.slotLabel}! Check the message above for your payment link to secure it.`
-          : `✅ Booking confirmed for ${draft.slotLabel}! You can pay at the clinic during your visit.`,
+        (payOnline
+          ? `✅ Booking confirmed for ${draft.slotLabel}${withDoctor}! Check the message above for your payment link to secure it.`
+          : `✅ Booking confirmed for ${draft.slotLabel}${withDoctor}! You can pay at the clinic during your visit.`) +
+          tokenLine,
       );
     } catch (err) {
       await this.reply(

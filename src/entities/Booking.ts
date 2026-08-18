@@ -59,6 +59,14 @@ export class Booking extends BaseEntity {
   @Column({ name: 'duration_minutes', default: 30 })
   durationMinutes!: number;
 
+  // This doctor's Nth booking of the day (by creation order, not slot
+  // time) — a simple clinic-queue-style serial number so the patient
+  // knows roughly where they stand, shown in the booking confirmation.
+  // Counts every booking regardless of status (cancellations leave gaps
+  // rather than being renumbered, same as an invoice sequence would).
+  @Column({ name: 'token_number', nullable: true })
+  tokenNumber?: number;
+
   @Column({ name: 'video_room_id', unique: true })
   videoRoomId!: string;
 
