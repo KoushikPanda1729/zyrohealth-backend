@@ -2,6 +2,8 @@ import { injectable, inject } from 'tsyringe';
 import { In } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
+import OpenAI from 'openai';
+import { env } from '../../config/env';
 import { AppDataSource } from '../../config/database';
 import { Tenant } from '../../entities/Tenant';
 import { Permission } from '../../entities/Permission';
@@ -16,6 +18,7 @@ import {
 } from '../../entities/MedicineShopPayout';
 import { PlatformAppConfig } from '../../entities/PlatformAppConfig';
 import { Banner } from '../../entities/Banner';
+import { Policy } from '../../entities/Policy';
 import { AppError } from '../../utils/app-error';
 import {
   generateUniqueSubdomain,
@@ -714,6 +717,10 @@ export class PlatformService {
       bottomNavMessage: boolean;
       bottomNavCalendar: boolean;
       bottomNavProfile: boolean;
+      supportEmail: string | null;
+      legalEntityName: string | null;
+      registeredAddress: string | null;
+      supportPhone: string | null;
     }>,
   ): Promise<PlatformAppConfig> {
     const config = await this.getAppConfig();
@@ -794,5 +801,123 @@ export class PlatformService {
     const banner = await repo.findOne({ where: { id } });
     if (!banner) throw AppError.notFound('Banner');
     await repo.remove(banner);
+  }
+
+  // ── Policies (privacy policy, refund policy, terms of service, etc.) ────
+  // Global, same scope as Banner/PlatformAppConfig — managed on the
+  // Policies admin page, read publicly by modules/policies (health-frontend's
+  // /privacy and /policies/[slug] pages).
+
+  async listPolicies(): Promise<Policy[]> {
+    return AppDataSource.getRepository(Policy).find({
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async createPolicy(data: {
+    slug: string;
+    title: string;
+    content?: string;
+    isPublished?: boolean;
+  }): Promise<Policy> {
+    const repo = AppDataSource.getRepository(Policy);
+    const existing = await repo.findOne({ where: { slug: data.slug } });
+    if (existing) {
+      throw AppError.badRequest(
+        `A policy with slug "${data.slug}" already exists`,
+      );
+    }
+    return repo.save(repo.create(data));
+  }
+
+  async updatePolicy(
+    id: string,
+    data: Partial<{
+      slug: string;
+      title: string;
+      content: string;
+      isPublished: boolean;
+    }>,
+  ): Promise<Policy> {
+    const repo = AppDataSource.getRepository(Policy);
+    const policy = await repo.findOne({ where: { id } });
+    if (!policy) throw AppError.notFound('Policy');
+    if (data.slug && data.slug !== policy.slug) {
+      const clash = await repo.findOne({ where: { slug: data.slug } });
+      if (clash) {
+        throw AppError.badRequest(
+          `A policy with slug "${data.slug}" already exists`,
+        );
+      }
+    }
+    const defined = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined),
+    );
+    Object.assign(policy, defined);
+    return repo.save(policy);
+  }
+
+  async deletePolicy(id: string): Promise<void> {
+    const repo = AppDataSource.getRepository(Policy);
+    const policy = await repo.findOne({ where: { id } });
+    if (!policy) throw AppError.notFound('Policy');
+    await repo.remove(policy);
+  }
+
+  // Plain one-off completion, deliberately not routed through
+  // IAiProvider — that interface is shaped for the patient symptom-checker
+  // chat (patientContext, structured symptom extraction) and doesn't fit
+  // a single-shot document draft. Uses the same OPENAI_API_KEY/AI_MODEL
+  // already configured for that feature.
+  async generatePolicyContent(
+    title: string,
+    instructions?: string,
+  ): Promise<string> {
+    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    const business = await this.getAppConfig();
+    const knownDetails = [
+      business.legalEntityName ? `Legal entity name: ${business.legalEntityName}` : null,
+      business.supportEmail ? `Support email: ${business.supportEmail}` : null,
+      business.supportPhone ? `Support phone: ${business.supportPhone}` : null,
+      business.registeredAddress ? `Registered address: ${business.registeredAddress}` : null,
+    ].filter(Boolean);
+
+    const systemPrompt = `You draft legal/policy documents for ZyroHealth, a telemedicine and pharmacy platform (mobile app + WhatsApp + website) operating primarily in India, connecting patients with doctors, hospitals, ambulances, and pharmacies.
+
+Ground facts about the platform, use them where relevant instead of generic filler:
+- Collects account info (name, phone, email), health info (DOB, gender, blood group, allergies, chronic conditions, prescriptions, consultation history, and for the women's health feature, menstrual cycle tracking), location (for ambulance dispatch and nearby hospitals/pharmacies), and payment info.
+- Payments for consultations and medicine orders are processed by Stripe; ZyroHealth does not store full card numbers.
+- Other processors: Twilio (SMS/OTP), Firebase (auth/notifications), OpenAI (in-app AI health assistant), LiveKit (voice/video consultations), WhatsApp/Meta (WhatsApp-based interactions).
+- Medicine orders are fulfilled by pharmacies/medicine shops on the platform; doctor consultations are booked and paid for in-app.
+- Primary jurisdiction is India — reference the Digital Personal Data Protection Act, 2023 where relevant to data/privacy topics.
+- Not directed at children under 18; care for minors must be booked by a parent/guardian.
+
+${
+  knownDetails.length > 0
+    ? `Known business details — use these EXACT values wherever a contact/legal detail is needed, do not paraphrase or invent alternatives:\n${knownDetails.map((d) => `- ${d}`).join('\n')}\n`
+    : ''
+}
+Write in plain text only — no markdown, no HTML, no asterisks for emphasis. Use numbered section headers (e.g. "1. Information We Collect") followed by a blank line, then body paragraphs, with a blank line between sections. Use "-" for bullet lists. Keep it clear, direct, and specific to the facts above rather than generic boilerplate. Do not invent facts not given here or in the admin's notes below (e.g. don't state a specific refund window unless provided). For any concrete detail needed but not supplied above or in the notes (support email, phone, address, specific windows/timeframes, etc.), use a bracketed placeholder like [support email] instead of guessing.`;
+
+    const userPrompt = [
+      `Draft a complete "${title}" document for ZyroHealth.`,
+      instructions?.trim()
+        ? `Additional notes from the platform owner to incorporate:\n${instructions.trim()}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    const response = await client.chat.completions.create({
+      model: env.AI_MODEL,
+      temperature: 0.4,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    });
+    const content = response.choices[0]?.message?.content?.trim();
+    if (!content) throw AppError.unprocessable('AI returned an empty draft');
+    return content;
   }
 }

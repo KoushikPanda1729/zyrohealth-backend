@@ -438,6 +438,10 @@ export class PlatformController {
         bottomNavMessage,
         bottomNavCalendar,
         bottomNavProfile,
+        supportEmail,
+        legalEntityName,
+        registeredAddress,
+        supportPhone,
       } = req.body as {
         topTabHealth?: boolean;
         topTabAiDoctor?: boolean;
@@ -453,6 +457,10 @@ export class PlatformController {
         bottomNavMessage?: boolean;
         bottomNavCalendar?: boolean;
         bottomNavProfile?: boolean;
+        supportEmail?: string | null;
+        legalEntityName?: string | null;
+        registeredAddress?: string | null;
+        supportPhone?: string | null;
       };
       const config = await this.platformService.updateAppConfig({
         topTabHealth,
@@ -467,6 +475,10 @@ export class PlatformController {
         sectionTopDoctors,
         sectionHealthArticles,
         bottomNavMessage,
+        supportEmail,
+        legalEntityName,
+        registeredAddress,
+        supportPhone,
         bottomNavCalendar,
         bottomNavProfile,
       });
@@ -547,6 +559,85 @@ export class PlatformController {
       const { id } = req.params as { id: string };
       await this.platformService.deleteBanner(id);
       res.status(200).json(success(null, 'Banner deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listPolicies = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const policies = await this.platformService.listPolicies();
+      res.status(200).json(success(policies));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createPolicy = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { slug, title, content, isPublished } = req.body as {
+        slug: string;
+        title: string;
+        content?: string;
+        isPublished?: boolean;
+      };
+      if (!slug) throw AppError.badRequest('slug is required');
+      if (!title) throw AppError.badRequest('title is required');
+      const policy = await this.platformService.createPolicy({
+        slug,
+        title,
+        content,
+        isPublished,
+      });
+      res.status(201).json(success(policy, 'Policy created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  updatePolicy = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const { slug, title, content, isPublished } = req.body as {
+        slug?: string;
+        title?: string;
+        content?: string;
+        isPublished?: boolean;
+      };
+      const policy = await this.platformService.updatePolicy(id, {
+        slug,
+        title,
+        content,
+        isPublished,
+      });
+      res.status(200).json(success(policy, 'Policy updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  deletePolicy = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      await this.platformService.deletePolicy(id);
+      res.status(200).json(success(null, 'Policy deleted'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  generatePolicy = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { title, instructions } = req.body as {
+        title?: string;
+        instructions?: string;
+      };
+      if (!title) throw AppError.badRequest('title is required');
+      const content = await this.platformService.generatePolicyContent(
+        title,
+        instructions,
+      );
+      res.status(200).json(success({ content }));
     } catch (err) {
       next(err);
     }

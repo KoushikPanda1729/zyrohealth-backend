@@ -124,4 +124,24 @@ router.delete('/banners/:id', canManage, (req, res, next) => {
   void ctrl.deleteBanner(req, res, next);
 });
 
+// Legal/policy documents (privacy policy, refund policy, terms of
+// service, etc.) — managed on the Policies admin page, read publicly via
+// the separate modules/policies router (health-frontend's /privacy and
+// /policies/[slug] pages).
+router.get('/policies', canView, (req, res, next) => {
+  void ctrl.listPolicies(req, res, next);
+});
+router.post('/policies', canManage, (req, res, next) => {
+  void ctrl.createPolicy(req, res, next);
+});
+router.post('/policies/generate', canManage, (req, res, next) => {
+  void ctrl.generatePolicy(req, res, next);
+});
+router.patch('/policies/:id', canManage, (req, res, next) => {
+  void ctrl.updatePolicy(req, res, next);
+});
+router.delete('/policies/:id', canManage, (req, res, next) => {
+  void ctrl.deletePolicy(req, res, next);
+});
+
 export { router as platformRouter };

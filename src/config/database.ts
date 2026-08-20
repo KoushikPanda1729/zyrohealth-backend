@@ -66,6 +66,7 @@ import { WomenHealthCategory } from '../entities/WomenHealthCategory';
 import { MenstrualCycleLog } from '../entities/MenstrualCycleLog';
 import { PlatformAppConfig } from '../entities/PlatformAppConfig';
 import { Banner } from '../entities/Banner';
+import { Policy } from '../entities/Policy';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -142,6 +143,7 @@ export const AppDataSource = new DataSource({
     MenstrualCycleLog,
     PlatformAppConfig,
     Banner,
+    Policy,
   ],
   migrations: ['src/migrations/*.ts'],
   subscribers: [],

@@ -51,4 +51,21 @@ export class PlatformAppConfig extends BaseEntity {
 
   @Column({ name: 'bottom_nav_profile', default: true })
   bottomNavProfile!: boolean;
+
+  // Business identity details — set once from the Policies admin page,
+  // reused every time a policy is AI-generated (see
+  // PlatformService.generatePolicyContent) instead of falling back to
+  // bracketed placeholders, and shown for reference at the top of that
+  // page. Not otherwise displayed anywhere.
+  @Column({ name: 'support_email', nullable: true })
+  supportEmail?: string;
+
+  @Column({ name: 'legal_entity_name', nullable: true })
+  legalEntityName?: string;
+
+  @Column({ name: 'registered_address', type: 'text', nullable: true })
+  registeredAddress?: string;
+
+  @Column({ name: 'support_phone', nullable: true })
+  supportPhone?: string;
 }
