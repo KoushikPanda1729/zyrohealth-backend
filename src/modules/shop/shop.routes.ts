@@ -230,6 +230,9 @@ router.post('/attendance/check-out', (req, res, next) => {
 router.get('/attendance/me/today', (req, res, next) => {
   void ctrl.getMyTodayAttendance(req, res, next);
 });
+router.get('/attendance/me', (req, res, next) => {
+  void ctrl.getMyAttendanceHistory(req, res, next);
+});
 router.get('/attendance', requirePermission('shop_attendance.manage'), (req, res, next) => {
   void ctrl.listAttendance(req, res, next);
 });
@@ -244,6 +247,9 @@ router.post('/leave/requests', (req, res, next) => {
 });
 router.get('/leave/me/balance', (req, res, next) => {
   void ctrl.getMyLeaveBalance(req, res, next);
+});
+router.get('/leave/me/requests', (req, res, next) => {
+  void ctrl.getMyLeaveRequests(req, res, next);
 });
 router.get('/leave/requests', requirePermission('shop_leave.manage'), (req, res, next) => {
   void ctrl.listLeaveRequests(req, res, next);

@@ -955,6 +955,20 @@ export class ShopController {
     }
   };
 
+  // Self-scoped history (not just today's status) — every staff member can
+  // see their OWN past attendance, no permission needed since it's their
+  // own data. Distinct from listAttendance above, which is the owner/
+  // manager view across all staff.
+  getMyAttendanceHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { from, to } = req.query as { from?: string; to?: string };
+      const rows = await this.shopService.listAttendance(shopOf(req), { staffUserId: userIdOf(req), from, to });
+      res.status(200).json(success(rows));
+    } catch (err) {
+      next(err);
+    }
+  };
+
   // ── Leave ────────────────────────────────────────────────────────────
   requestLeave = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -1008,6 +1022,19 @@ export class ShopController {
     try {
       const balance = await this.shopService.getLeaveBalance(shopOf(req), userIdOf(req));
       res.status(200).json(success(balance));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // Self-scoped history — every staff member can see their OWN past leave
+  // requests (any status), not just the current balance. Distinct from
+  // listLeaveRequests above, which requires shop_leave.manage since it
+  // lists across all staff.
+  getMyLeaveRequests = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const requests = await this.shopService.listLeaveRequests(shopOf(req), { staffUserId: userIdOf(req) });
+      res.status(200).json(success(requests));
     } catch (err) {
       next(err);
     }
