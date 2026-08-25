@@ -6,10 +6,14 @@ import { TenantWhatsAppConfig, WhatsAppProviderType } from '../../entities/Tenan
 
 // The pre-multi-tenancy app becomes this tenant. Used to backfill any
 // signup path that doesn't yet pass an explicit tenantId (today's app has
-// no per-tenant signup surface).
+// no per-tenant signup surface). Resolved by oldest active, non-standalone
+// tenant rather than a hardcoded name — a fixed name silently breaks every
+// new signup the moment that tenant is renamed or deleted (as happened when
+// the old 'HealthPlus' test tenant was removed).
 export async function getDefaultTenantId(): Promise<string | undefined> {
   const tenant = await AppDataSource.getRepository(Tenant).findOne({
-    where: { name: 'HealthPlus' },
+    where: { isActive: true, isStandaloneMedicineShop: false },
+    order: { createdAt: 'ASC' },
   });
   return tenant?.id;
 }
