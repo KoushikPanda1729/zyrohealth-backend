@@ -9,7 +9,6 @@ import express, {
 } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
-import { env } from './config/env';
 import { errorMiddleware } from './middleware/error.middleware';
 import { globalLimiter } from './middleware/rateLimit.middleware';
 
@@ -59,34 +58,10 @@ export function createApp(): Express {
   app.set('trust proxy', 1);
 
   app.use(helmet());
-  const allowedOrigins = env.SOCKET_CORS_ORIGIN.split(',').map((o) => o.trim());
-  // Per-tenant admin portals live on arbitrary subdomains of
-  // TENANT_ROOT_DOMAIN (e.g. apollo-clinic.zyrohealthai.com) that can't be
-  // enumerated in SOCKET_CORS_ORIGIN ahead of time — allow the whole
-  // wildcard instead of listing every tenant.
-  const tenantRootDomain = env.TENANT_ROOT_DOMAIN;
-  app.use(
-    cors({
-      origin: (origin, cb) => {
-        if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-        if (tenantRootDomain) {
-          try {
-            const { protocol, hostname } = new URL(origin);
-            if (
-              protocol === 'https:' &&
-              hostname.endsWith(`.${tenantRootDomain}`)
-            ) {
-              return cb(null, true);
-            }
-          } catch {
-            // fall through to rejection below
-          }
-        }
-        cb(new Error(`CORS: origin ${origin} not allowed`));
-      },
-      credentials: true,
-    }),
-  );
+  // Reflects whatever Origin the request sends (any origin allowed) instead
+  // of a fixed list — needed so `flutter run -d chrome` (a random localhost
+  // port each run) and any other web client can hit the API during testing.
+  app.use(cors({ origin: true, credentials: true }));
   app.use(globalLimiter);
 
   // Stripe webhook MUST receive raw body — mount BEFORE express.json()
