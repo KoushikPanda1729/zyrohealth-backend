@@ -100,6 +100,9 @@ export class AuthService {
     phone: string,
     channel: 'sms' | 'whatsapp' = 'sms',
   ): Promise<void> {
+    // The reviewer's fixed phone+code (see verifyOtpAndLogin) has no real
+    // SMS/WhatsApp inbox to deliver to — nothing to send.
+    if (env.PLAY_REVIEW_PHONE && phone === env.PLAY_REVIEW_PHONE) return;
     if (channel === 'whatsapp') {
       const code = await generateAndStoreOtp(phone);
       await this.whatsAppProvider.sendText(
@@ -122,17 +125,25 @@ export class AuthService {
     refreshToken: string;
     isNewUser: boolean;
   }> {
-    const repo = AppDataSource.getRepository(OtpCode);
-    const otp = await repo.findOne({
-      where: { phoneNumber: phone, code, verified: false },
-      order: { createdAt: 'DESC' },
-    });
+    const isPlayReviewLogin =
+      !!env.PLAY_REVIEW_PHONE &&
+      !!env.PLAY_REVIEW_OTP &&
+      phone === env.PLAY_REVIEW_PHONE &&
+      code === env.PLAY_REVIEW_OTP;
 
-    if (!otp) throw AppError.unprocessable('Invalid OTP');
-    if (otp.expiresAt < new Date()) throw AppError.unprocessable('OTP expired');
+    if (!isPlayReviewLogin) {
+      const repo = AppDataSource.getRepository(OtpCode);
+      const otp = await repo.findOne({
+        where: { phoneNumber: phone, code, verified: false },
+        order: { createdAt: 'DESC' },
+      });
 
-    otp.verified = true;
-    await repo.save(otp);
+      if (!otp) throw AppError.unprocessable('Invalid OTP');
+      if (otp.expiresAt < new Date()) throw AppError.unprocessable('OTP expired');
+
+      otp.verified = true;
+      await repo.save(otp);
+    }
 
     // No per-tenant signup surface exists yet — each tenant's own
     // booking link/app instance would pass its own tenantId; requests

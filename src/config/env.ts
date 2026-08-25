@@ -79,6 +79,14 @@ const envSchema = z.object({
   // and is only mentioned once a real one is configured.
   PATIENT_WEB_URL: z.string().default('http://localhost:3002'),
   PATIENT_PLAYSTORE_URL: z.string().default(''),
+  // Lets the Play Store / App Store reviewer sign in without a real SMS —
+  // OTP delivery obviously can't reach them. When both are set,
+  // verifyOtpAndLogin accepts this exact phone+code pair without touching
+  // the real OtpCode table. Unset in every environment except where
+  // you've deliberately configured a reviewer account (see the "Sign-in
+  // details" declaration in Play Console).
+  PLAY_REVIEW_PHONE: z.string().optional(),
+  PLAY_REVIEW_OTP: z.string().optional(),
 });
 
 type Env = z.infer<typeof envSchema>;
