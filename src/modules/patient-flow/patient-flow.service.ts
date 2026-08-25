@@ -55,7 +55,7 @@ export class PatientFlowService {
       where: { isActive: true, tenantId },
     });
     if (!activeFlow) {
-      throw AppError.notFound('No active flow configured for this tenant yet');
+      throw new AppError('No active flow configured for this tenant yet', 404, 'NOT_FOUND');
     }
 
     if (session.activeFlowId !== activeFlow.id) {

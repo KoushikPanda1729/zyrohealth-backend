@@ -162,7 +162,7 @@ export class MedicineOrdersService {
       id: In(orderIds),
     });
     if (orders.length !== orderIds.length) {
-      throw AppError.notFound('One or more orders not found');
+      throw new AppError('One or more orders not found', 404, 'NOT_FOUND');
     }
     for (const order of orders) {
       if (order.patientId !== patientId) throw AppError.forbidden();
