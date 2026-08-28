@@ -1849,8 +1849,12 @@ export class AdminController {
         metaAccessToken,
         metaAppSecret,
         metaApiVersion,
+        gupshupApiKey,
+        gupshupSourceNumber,
+        gupshupAppName,
+        gupshupWebhookSecret,
       } = req.body as {
-        provider: 'twilio' | 'meta';
+        provider: 'twilio' | 'meta' | 'gupshup';
         twilioAccountSid?: string;
         twilioAuthToken?: string;
         twilioFromNumber?: string;
@@ -1858,10 +1862,14 @@ export class AdminController {
         metaAccessToken?: string;
         metaAppSecret?: string;
         metaApiVersion?: string;
+        gupshupApiKey?: string;
+        gupshupSourceNumber?: string;
+        gupshupAppName?: string;
+        gupshupWebhookSecret?: string;
       };
       if (!provider) throw AppError.badRequest('provider is required');
-      if (!['twilio', 'meta'].includes(provider)) {
-        throw AppError.badRequest('provider must be "twilio" or "meta"');
+      if (!['twilio', 'meta', 'gupshup'].includes(provider)) {
+        throw AppError.badRequest('provider must be "twilio", "meta", or "gupshup"');
       }
       const result = await this.adminService.updateWhatsAppConfig(
         tenantOf(req),
@@ -1874,6 +1882,10 @@ export class AdminController {
           metaAccessToken,
           metaAppSecret,
           metaApiVersion,
+          gupshupApiKey,
+          gupshupSourceNumber,
+          gupshupAppName,
+          gupshupWebhookSecret,
         },
       );
       res.status(200).json(success(result, 'WhatsApp settings saved'));
