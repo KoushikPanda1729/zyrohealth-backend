@@ -370,10 +370,24 @@ export class WhatsAppFlowEngineService {
             | undefined) ?? [];
 
         if (consumeInput) {
-          const idx = matchOptionIndex(
+          let idx = matchOptionIndex(
             inputText,
             options.map((o) => o.label),
           );
+          if (idx === undefined) {
+            // A tapped WhatsApp quick-reply/list button echoes back its
+            // DISPLAYED title, not the original label — and WhatsApp/
+            // Gupshup truncate long titles (20 chars for a quick-reply
+            // button, 24 for a list item) before sending, so a long
+            // option's reply no longer exact-matches its full label
+            // above. Recognize it by re-applying the same truncation to
+            // each label and comparing against what actually came back.
+            const trimmed = inputText.trim();
+            const fallbackIdx = options.findIndex(
+              (o) => o.label.slice(0, 20) === trimmed || o.label.slice(0, 24) === trimmed,
+            );
+            if (fallbackIdx >= 0) idx = fallbackIdx;
+          }
           const matched = idx !== undefined ? options[idx] : undefined;
           const edge = matched
             ? outgoing.find((e) => e.sourceHandle === matched.id)

@@ -27,7 +27,12 @@ interface GupshupWebhookPayload {
     id?: string;
     source?: string;
     type?: string;
-    payload?: { text?: string; url?: string; contentType?: string };
+    // `text`/`url`/`contentType` cover plain text/image messages; `title`/
+    // `id` cover a tapped quick-reply or list option (Gupshup's
+    // "button_reply"/"list_reply" message types) — the button's title is
+    // what we match against a flow's buttons-node option labels, same as
+    // a patient typing the option out by hand.
+    payload?: { text?: string; url?: string; contentType?: string; title?: string; id?: string };
     sender?: { phone?: string };
   };
 }
@@ -314,7 +319,12 @@ export class WhatsAppWebhookController {
           );
           media = { url, mimeType };
         }
-        const text = message.type === 'text' ? (message.payload?.text ?? '') : '';
+        const text =
+          message.type === 'text'
+            ? (message.payload?.text ?? '')
+            : message.type === 'button_reply' || message.type === 'list_reply'
+              ? (message.payload?.title ?? message.payload?.id ?? '')
+              : '';
         if (shopId) {
           await this.bot.processInboundShopModuleMessage(shopId, tenantId, phone, text, media);
         } else {
