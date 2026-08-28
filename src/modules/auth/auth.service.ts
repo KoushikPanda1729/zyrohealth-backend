@@ -190,6 +190,99 @@ export class AuthService {
     return { user, accessToken, refreshToken, isNewUser };
   }
 
+  // Password-based patient/doctor auth — an alternative front door to the
+  // OTP flow above (verifyOtpAndLogin), not a replacement for it: existing
+  // OTP-created accounts keep working exactly as before, this just lets
+  // someone set a password instead of re-verifying by OTP every time.
+  // Phone verification is intentionally skipped for now (no OTP sent here)
+  // — this is the fast path; real phone verification can be layered back
+  // in later without changing this shape.
+  async register(
+    phoneNumber: string,
+    email: string,
+    password: string,
+    fullName: string,
+    role: 'patient' | 'doctor' = 'patient',
+    tenantId?: string,
+  ): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+    const userRepo = AppDataSource.getRepository(User);
+    const resolvedTenantId = tenantId ?? (await getDefaultTenantId());
+    if (!resolvedTenantId) throw new Error('No default tenant configured');
+
+    const existingByEmail = await userRepo.findOne({ where: { email } });
+    if (existingByEmail) throw AppError.conflict('An account with this email already exists — try logging in instead.');
+
+    // Phone isn't globally unique (verifyOtpAndLogin scopes by tenant too),
+    // but a second row for the same phone+tenant would make its own
+    // phone-based lookup pick one of the two arbitrarily — block it here.
+    const existingByPhone = await userRepo.findOne({
+      where: { phoneNumber, tenantId: resolvedTenantId },
+    });
+    if (existingByPhone) {
+      throw AppError.conflict('An account with this phone number already exists — try logging in instead.');
+    }
+
+    const resolvedRole = role === 'doctor' ? UserRole.DOCTOR : UserRole.PATIENT;
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = userRepo.create({
+      firebaseUid: `${role}_${resolvedTenantId}_${phoneNumber}`,
+      phoneNumber,
+      email,
+      fullName,
+      passwordHash,
+      role: resolvedRole,
+      tenantId: resolvedTenantId,
+      isActive: true,
+    });
+    await userRepo.save(user);
+
+    // Same as verifyOtpAndLogin's new-doctor branch — every doctor needs a
+    // DoctorProfile row to exist before /doctor/profile (specialty,
+    // license, etc.) or the approval pipeline have anything to attach to.
+    if (resolvedRole === UserRole.DOCTOR) {
+      await AppDataSource.getRepository(DoctorProfile).save(
+        AppDataSource.getRepository(DoctorProfile).create({
+          userId: user.id,
+          tenantId: resolvedTenantId,
+        }),
+      );
+    }
+
+    const { accessToken, refreshToken } = await this.issueTokens(user);
+    return { user, accessToken, refreshToken };
+  }
+
+  async login(
+    email: string,
+    password: string,
+  ): Promise<{ user: User; accessToken: string; refreshToken: string }> {
+    const userRepo = AppDataSource.getRepository(User);
+
+    const user = await userRepo
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash')
+      .leftJoinAndSelect('u.doctorProfile', 'doctorProfile')
+      .where('u.email = :email AND u.role IN (:...roles)', {
+        email,
+        roles: [UserRole.PATIENT, UserRole.DOCTOR],
+      })
+      .getOne();
+
+    if (!user) throw AppError.unauthorized('Invalid email or password');
+    if (!user.isActive) throw AppError.forbidden('Account is banned');
+    if (!user.passwordHash) {
+      throw AppError.unauthorized(
+        'This account was created via OTP and has no password set yet — log in with OTP instead.',
+      );
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) throw AppError.unauthorized('Invalid email or password');
+
+    const { accessToken, refreshToken } = await this.issueTokens(user);
+    return { user, accessToken, refreshToken };
+  }
+
   async getCurrentUser(uid: string): Promise<User | null> {
     const user = await AppDataSource.getRepository(User).findOne({
       where: { firebaseUid: uid },

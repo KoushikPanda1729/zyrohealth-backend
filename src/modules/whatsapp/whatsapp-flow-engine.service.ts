@@ -4,6 +4,7 @@ import {
   WhatsAppFlow,
   WhatsAppFlowNode,
   WhatsAppFlowEdge,
+  WhatsAppFlowNodeType,
 } from '../../entities/WhatsAppFlow';
 import { WhatsAppSession, WhatsAppMessageEvent } from '../../entities/WhatsAppSession';
 import { AppFlowSession } from '../../entities/AppFlowSession';
@@ -29,7 +30,7 @@ import {
   QuotedMedicineItem,
 } from '../../entities/MedicineShopQuote';
 import { MedicineShop } from '../../entities/MedicineShop';
-import { User } from '../../entities/User';
+import { User, UserRole } from '../../entities/User';
 import { Tenant } from '../../entities/Tenant';
 import { DoctorsService } from '../doctors/doctors.service';
 import { BookingsService } from '../bookings/bookings.service';
@@ -43,6 +44,7 @@ import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicin
 import { PaymentsService } from '../payments/payments.service';
 import { MedicineOrdersService } from '../medicine-orders/medicine-orders.service';
 import { getValidNextStatuses } from '../../utils/order-status-transitions';
+import { env } from '../../config/env';
 
 const MAX_HOPS_PER_TURN = 20;
 const MAX_SLOT_OPTIONS = 6;
@@ -63,6 +65,18 @@ const GREETING_WORDS = new Set([
   'restart',
   'hii',
   'helo',
+]);
+
+// Node types whose executor needs a linked account to do anything real
+// (create a booking, look up an order, file a prescription request) —
+// reaching one of these with no session.userId triggers an inline
+// WhatsApp OTP sign-up (see executeNode's interception, startInlineSignup)
+// instead of each executor separately dead-ending with "please sign up".
+const AUTH_REQUIRED_NODE_TYPES = new Set<WhatsAppFlowNodeType>([
+  'platform_create_booking',
+  'platform_order_status',
+  'platform_manage_booking',
+  'upload_prescription',
 ]);
 
 type NodeOutcome =
@@ -109,6 +123,13 @@ export interface FlowSink {
   // sent a human-readable message via sendText/sendInteractive above), the
   // app's sink is built entirely around it.
   sendStructured(stepType: string, data: Record<string, unknown>): Promise<void>;
+  // Only WhatsApp sessions can ever be unauthenticated (AppFlowSession
+  // requires a userId to exist at all) — this is the channel-specific
+  // detail the inline OTP sign-up (see startInlineSignup) needs a phone
+  // number to text a code to. Undefined on the app's sink; structurally
+  // never called there since AUTH_REQUIRED_NODE_TYPES gating only ever
+  // triggers when userId is missing.
+  getPhoneNumber(): string | undefined;
 }
 
 export interface AppFlowStep {
@@ -147,6 +168,12 @@ export class AppFlowSink implements FlowSink {
       { role: 'assistant', content: '', timestamp: new Date().toISOString(), step: { stepType, data } },
     ];
     return Promise.resolve();
+  }
+
+  // AppFlowSession always has a userId already — this sink's channel can
+  // never actually hit the inline-signup path that needs this.
+  getPhoneNumber(): string | undefined {
+    return undefined;
   }
 }
 
@@ -190,6 +217,10 @@ class WhatsAppFlowSink implements FlowSink {
   // No-op — the app's own step accumulation has no WhatsApp equivalent;
   // the human-readable message already went out via sendText/sendInteractive.
   async sendStructured(): Promise<void> {}
+
+  getPhoneNumber(): string | undefined {
+    return this.session.phoneNumber;
+  }
 }
 
 function stringifyVar(val: unknown): string {
@@ -350,6 +381,22 @@ export class WhatsAppFlowEngineService {
     outgoing: WhatsAppFlowEdge[],
     sink: FlowSink,
   ): Promise<NodeOutcome> {
+    // A reply to the inline "what's your name?" prompt takes priority over
+    // everything else — consume it as the patient's name, create their
+    // account for this tenant, then fall through into this SAME node
+    // (which triggered the gate below and hasn't actually run its own
+    // logic yet) as a fresh, non-input-consuming entry.
+    if (consumeInput && session.flowVariables['__awaitingSignupName']) {
+      const created = await this.completeInlineSignup(session, sink, inputText);
+      if (!created) return { action: 'wait' };
+      consumeInput = false;
+    } else if (!session.userId && AUTH_REQUIRED_NODE_TYPES.has(node.type)) {
+      // First time this session has hit a node that needs a real account
+      // — ask for a name right in the chat instead of dead-ending with
+      // "please sign up" (see promptRegistration/completeInlineSignup).
+      return this.promptRegistration(session, sink);
+    }
+
     switch (node.type) {
       case 'start':
         return this.advanceTo(outgoing[0]);
@@ -1213,7 +1260,7 @@ export class WhatsAppFlowEngineService {
     // patient chose to keep it) falls through the same edge — the admin
     // only needs to wire 'cancel'/'reschedule' explicitly plus one more
     // for everything else, not a 4th dedicated "no-op" handle.
-    const fallbackEdge = () =>
+    const fallbackEdge = (): WhatsAppFlowEdge | undefined =>
       outgoing.find((e) => e.sourceHandle === 'keep') ?? outgoing[0];
 
     if (!session.userId) {
@@ -1855,6 +1902,80 @@ export class WhatsAppFlowEngineService {
     return { action: 'wait', silent: !shouldAnnounce };
   }
 
+  // ── Unregistered-number handling ─────────────────────────────────────
+  // Registers the patient right here in the chat — no link, no leaving
+  // WhatsApp. The phone number (already "verified" by the fact they're
+  // texting from it) plus one quick name prompt is enough; see
+  // completeInlineSignup for what happens with the reply. Falls back to
+  // the web registration form only when we have no phone number to work
+  // with at all (structurally shouldn't happen — see FlowSink.getPhoneNumber).
+  private async promptRegistration(session: FlowSession, sink: FlowSink): Promise<NodeOutcome> {
+    const phone = sink.getPhoneNumber();
+    if (!phone) {
+      await this.dispatchText(
+        session,
+        sink,
+        `I couldn't find a ZyroHealth account linked to this number.\n\n👉 Register here: ${env.PATIENT_WEB_URL}/register\n\nThen come back and try again.`,
+      );
+      return { action: 'end' };
+    }
+    session.flowVariables['__awaitingSignupName'] = true;
+    await this.dispatchText(
+      session,
+      sink,
+      "Looks like this is your first time messaging us here! 👋 What's your name?",
+    );
+    return { action: 'wait' };
+  }
+
+  // Handles the reply to promptRegistration's name prompt — creates the
+  // patient account for this tenant (or reuses one that already showed up
+  // in the meantime, e.g. registered via the web form) and hands the
+  // session back to whatever node was gated. Returns false (and re-asks)
+  // if the reply doesn't look like a real name, true once session.userId
+  // is set and ready to continue.
+  private async completeInlineSignup(
+    session: FlowSession,
+    sink: FlowSink,
+    rawName: string,
+  ): Promise<boolean> {
+    const name = rawName.trim().replace(/\s+/g, ' ');
+    if (name.length < 2 || name.length > 80) {
+      await this.dispatchText(session, sink, "Sorry, I didn't catch that — what's your name?");
+      return false;
+    }
+
+    const phone = sink.getPhoneNumber();
+    if (!phone || !session.tenantId) {
+      await this.dispatchText(
+        session,
+        sink,
+        "Something went wrong setting up your account — please try again in a moment.",
+      );
+      delete session.flowVariables['__awaitingSignupName'];
+      return false;
+    }
+
+    const userRepo = AppDataSource.getRepository(User);
+    let user = await userRepo.findOne({ where: { phoneNumber: phone, tenantId: session.tenantId } });
+    if (!user) {
+      user = userRepo.create({
+        firebaseUid: `patient_${session.tenantId}_${phone}`,
+        phoneNumber: phone,
+        fullName: name,
+        role: UserRole.PATIENT,
+        tenantId: session.tenantId,
+        isActive: true,
+      });
+      await userRepo.save(user);
+    }
+
+    session.userId = user.id;
+    delete session.flowVariables['__awaitingSignupName'];
+    await this.dispatchText(session, sink, `Thanks, ${name.split(' ')[0]}! 🎉 You're all set — continuing...`);
+    return true;
+  }
+
   // ── Shared helpers ─────────────────────────────────────────────────
 
   private advanceTo(edge?: WhatsAppFlowEdge): NodeOutcome {
@@ -1875,8 +1996,15 @@ export class WhatsAppFlowEngineService {
     options: InteractiveOption[],
     listButtonLabel?: string,
   ): Promise<void> {
+    // Appended into the body itself (italic, on its own line) rather than
+    // a native WhatsApp "footer" field — Gupshup's quick-reply format and
+    // Twilio's content types don't support a real footer at all (only
+    // Meta's Cloud API and Gupshup's list format do), so this is the one
+    // way to show it consistently no matter which provider or message
+    // shape (quick-reply vs list) actually goes out.
+    const bodyWithFooter = `${body}\n\n_Reply "stop" anytime to pause this conversation._`;
     const textLog =
-      `${body}\n\n` +
+      `${bodyWithFooter}\n\n` +
       options
         .map(
           (o, i) =>
@@ -1890,9 +2018,9 @@ export class WhatsAppFlowEngineService {
     // only the flattened text log survives and the buttons are gone.
     this.appendMessage(session, 'assistant', textLog, {
       stepType: 'options',
-      data: { text: body, options, listButtonLabel },
+      data: { text: bodyWithFooter, options, listButtonLabel },
     });
-    await sink.sendInteractive(body, options, listButtonLabel);
+    await sink.sendInteractive(bodyWithFooter, options, listButtonLabel);
   }
 
   private appendMessage(

@@ -79,6 +79,12 @@ const GREETING_WORDS = new Set([
   'helo',
 ]);
 
+// Deliberately NOT "cancel" — that word already has a narrower, existing
+// meaning mid-booking (cancels just the in-progress booking draft, see
+// BOOKING_STATES handling below), and this check runs before that so
+// including it here would shadow that behavior entirely.
+const STOP_WORDS = new Set(['stop', 'pause']);
+
 const HANDOFF_TEXT = `Got it — I've flagged this for our support team, they'll reply here shortly. 🙏`;
 const AI_PROMPT_TEXT = `Sure — go ahead and ask your question.`;
 const INVALID_CHOICE_TEXT = `Please pick one of the options above (or type "cancel" to stop).`;
@@ -187,6 +193,23 @@ export class WhatsAppBotService {
 
     // Admin is handling this conversation manually — bot stays silent until resumed.
     if (session.awaitingHuman) {
+      session.lastMessageAt = new Date();
+      await sessionRepo.save(session);
+      return;
+    }
+
+    // A patient asking to pause — same reset the 15-minute idle-closer job
+    // does (whatsapp-session-idle.job.ts), just triggered on request
+    // instead of by inactivity. Works whether or not a flow builder flow
+    // is active, since it's checked before that branch below.
+    if (STOP_WORDS.has(text.trim().toLowerCase())) {
+      session.conversationState = WhatsAppConversationState.CLOSED;
+      session.flowNodeId = null;
+      session.flowVariables = {};
+      await this.reply(
+        session,
+        `Okay, I've paused this conversation. Type "hi" anytime you'd like to start again. 🙂`,
+      );
       session.lastMessageAt = new Date();
       await sessionRepo.save(session);
       return;
@@ -1395,8 +1418,13 @@ export class WhatsAppBotService {
     options: InteractiveOption[],
     listButtonLabel?: string,
   ): Promise<void> {
+    // Appended into the body itself rather than a native WhatsApp
+    // "footer" field — not every provider's interactive message format
+    // supports one (see the same note in whatsapp-flow-engine.service.ts's
+    // dispatchOptions), so this is the one way it shows up consistently.
+    const bodyWithFooter = `${body}\n\n_Reply "stop" anytime to pause this conversation._`;
     const textLog =
-      `${body}\n\n` +
+      `${bodyWithFooter}\n\n` +
       options
         .map(
           (o) =>
@@ -1408,7 +1436,7 @@ export class WhatsAppBotService {
       const provider = await this.providerResolver.resolve(session.tenantId!);
       await provider.sendInteractive(
         session.phoneNumber,
-        body,
+        bodyWithFooter,
         options,
         listButtonLabel,
       );

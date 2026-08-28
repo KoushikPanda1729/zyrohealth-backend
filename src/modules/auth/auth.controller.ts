@@ -52,6 +52,56 @@ export class AuthController {
     }
   };
 
+  register = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { phoneNumber, email, password, fullName, role, tenantId } = req.body as {
+        phoneNumber: string;
+        email: string;
+        password: string;
+        fullName: string;
+        role?: 'patient' | 'doctor';
+        tenantId?: string;
+      };
+      if (!phoneNumber) throw AppError.badRequest('Phone number is required');
+      if (!email) throw AppError.badRequest('Email is required');
+      if (!password || password.length < 8)
+        throw AppError.badRequest('Password must be at least 8 characters');
+      if (!fullName) throw AppError.badRequest('Full name is required');
+      if (role && role !== 'patient' && role !== 'doctor')
+        throw AppError.badRequest('Role must be "patient" or "doctor"');
+      const { user, accessToken, refreshToken } =
+        await this.authService.register(phoneNumber, email, password, fullName, role, tenantId);
+      res
+        .status(201)
+        .json(success({ user, accessToken, refreshToken, role: user.role }, 'Account created'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  login = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { email, password } = req.body as { email: string; password: string };
+      if (!email) throw AppError.badRequest('Email is required');
+      if (!password) throw AppError.badRequest('Password is required');
+      const { user, accessToken, refreshToken } =
+        await this.authService.login(email, password);
+      res
+        .status(200)
+        .json(success({ user, accessToken, refreshToken, role: user.role }, 'Logged in successfully'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
   me = async (
     req: Request,
     res: Response,

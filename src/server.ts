@@ -7,6 +7,7 @@ import { AppDataSource } from './config/database';
 import { initSocket } from './socket';
 import { env } from './config/env';
 import { scheduleMedicineShopAlerts } from './jobs/medicine-shop-alerts.job';
+import { scheduleWhatsAppSessionIdleCloser } from './jobs/whatsapp-session-idle.job';
 
 async function bootstrap(): Promise<void> {
   await AppDataSource.initialize();
@@ -15,6 +16,7 @@ async function bootstrap(): Promise<void> {
   const server = http.createServer(app);
   initSocket(server);
   scheduleMedicineShopAlerts();
+  scheduleWhatsAppSessionIdleCloser();
 
   server.listen(env.PORT, () => {
     process.stdout.write(`Server running on http://localhost:${env.PORT}\n`);

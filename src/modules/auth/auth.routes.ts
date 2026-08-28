@@ -18,6 +18,14 @@ router.post('/verify-otp', authLimiter, validate(VerifyOtpDto), (req, res, next)
   void ctrl.verifyOtp(req, res, next);
 });
 
+// Patient/doctor email+password auth — alternative to the OTP flow above.
+router.post('/register', authLimiter, (req, res, next) => {
+  void ctrl.register(req, res, next);
+});
+router.post('/login', authLimiter, (req, res, next) => {
+  void ctrl.login(req, res, next);
+});
+
 router.get('/me', verifyToken, (req, res, next) => {
   void ctrl.me(req, res, next);
 });
