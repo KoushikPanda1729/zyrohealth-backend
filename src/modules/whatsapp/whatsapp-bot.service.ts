@@ -56,9 +56,12 @@ const MAIN_MENU_OPTIONS: InteractiveOption[] = [
     description: 'Chat with our AI assistant',
   },
   { id: '4', title: 'Book a Doctor', description: 'Book a new consultation' },
+  // WhatsApp list-message row titles are hard-capped at 24 characters and
+  // truncated silently (no ellipsis) past that — the description already
+  // carries the "upload a photo" detail, so the title stays short.
   {
     id: '5',
-    title: 'Order Medicine (Upload Prescription)',
+    title: 'Order Medicine',
     description: 'Send a photo of your prescription for a price quote',
   },
 ];
