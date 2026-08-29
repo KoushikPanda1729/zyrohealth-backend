@@ -767,6 +767,18 @@ export class WhatsAppBotService {
       return;
     }
 
+    // Screen out obviously-wrong photos before creating a real request a
+    // shop would otherwise have to reject manually — same check the
+    // channel-agnostic flow engine uses (whatsapp-flow-engine.service.ts).
+    const check = await this.ai.classifyPrescriptionImage(media.url);
+    if (!check.isPrescription) {
+      await this.reply(
+        session,
+        `${check.reason} Please send a clear photo of your prescription.`,
+      );
+      return;
+    }
+
     const requestRepo = AppDataSource.getRepository(PrescriptionUploadRequest);
     const request = requestRepo.create({
       tenantId: session.tenantId!,

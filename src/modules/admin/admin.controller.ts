@@ -1853,6 +1853,9 @@ export class AdminController {
         gupshupSourceNumber,
         gupshupAppName,
         gupshupWebhookSecret,
+        gupshupAppId,
+        otpTemplateName,
+        otpTemplateLang,
       } = req.body as {
         provider: 'twilio' | 'meta' | 'gupshup';
         twilioAccountSid?: string;
@@ -1866,6 +1869,9 @@ export class AdminController {
         gupshupSourceNumber?: string;
         gupshupAppName?: string;
         gupshupWebhookSecret?: string;
+        gupshupAppId?: string;
+        otpTemplateName?: string;
+        otpTemplateLang?: string;
       };
       if (!provider) throw AppError.badRequest('provider is required');
       if (!['twilio', 'meta', 'gupshup'].includes(provider)) {
@@ -1886,9 +1892,86 @@ export class AdminController {
           gupshupSourceNumber,
           gupshupAppName,
           gupshupWebhookSecret,
+          gupshupAppId,
+          otpTemplateName,
+          otpTemplateLang,
         },
       );
       res.status(200).json(success(result, 'WhatsApp settings saved'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  listWhatsAppTemplates = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const templates = await this.adminService.listWhatsAppTemplates(tenantOf(req));
+      res.status(200).json(success(templates));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  createWhatsAppTemplate = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { elementName, category, languageCode, content, example, templateType } =
+        req.body as {
+          elementName?: string;
+          category?: 'MARKETING' | 'UTILITY' | 'AUTHENTICATION';
+          languageCode?: string;
+          content?: string;
+          example?: string;
+          templateType?: string;
+        };
+      if (!elementName || !category || !languageCode || !content || !example) {
+        throw AppError.badRequest(
+          'elementName, category, languageCode, content, and example are required',
+        );
+      }
+      const template = await this.adminService.createWhatsAppTemplate(tenantOf(req), {
+        elementName,
+        category,
+        languageCode,
+        content,
+        example,
+        templateType,
+      });
+      res.status(201).json(success(template, 'Template submitted for approval'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  sendWhatsAppTemplate = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { phone, templateName, languageCode, params } = req.body as {
+        phone?: string;
+        templateName?: string;
+        languageCode?: string;
+        params?: string[];
+      };
+      if (!phone || !templateName || !languageCode) {
+        throw AppError.badRequest('phone, templateName, and languageCode are required');
+      }
+      await this.adminService.sendWhatsAppTemplate(tenantOf(req), {
+        phone,
+        templateName,
+        languageCode,
+        params: params ?? [],
+      });
+      res.status(200).json(success(null, 'Template message sent'));
     } catch (err) {
       next(err);
     }

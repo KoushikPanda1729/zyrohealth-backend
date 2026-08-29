@@ -20,6 +20,7 @@ import { OtpCode } from '../../entities/OtpCode';
 import { RefreshToken } from '../../entities/RefreshToken';
 import { InviteToken } from '../../entities/InviteToken';
 import { Tenant } from '../../entities/Tenant';
+import { TenantWhatsAppConfig } from '../../entities/TenantWhatsAppConfig';
 import { env } from '../../config/env';
 import { AppError } from '../../utils/app-error';
 import { generateAndStoreOtp } from '../../utils/otp.util';
@@ -124,16 +125,24 @@ export class AuthService {
       const provider = resolvedTenantId
         ? await this.whatsAppProviderResolver.resolve(resolvedTenantId)
         : this.whatsAppProvider;
-      if (env.WHATSAPP_OTP_TEMPLATE_NAME) {
+      // A tenant's own configured template (set via WhatsApp Provider
+      // Settings → OTP Template, admin.service.ts#updateWhatsAppConfig)
+      // wins over the platform-wide env var fallback.
+      const tenantConfig = resolvedTenantId
+        ? await AppDataSource.getRepository(TenantWhatsAppConfig).findOne({
+            where: { tenantId: resolvedTenantId },
+          })
+        : null;
+      const templateName = tenantConfig?.otpTemplateName || env.WHATSAPP_OTP_TEMPLATE_NAME;
+      const templateLang = tenantConfig?.otpTemplateLang || env.WHATSAPP_OTP_TEMPLATE_LANG;
+      if (templateName) {
         // Cold-start safe — works even if this phone number has never
         // messaged the business before, unlike a plain text send (which
         // WhatsApp silently drops outside an active 24h session).
-        await provider.sendTemplate(
-          phone,
-          env.WHATSAPP_OTP_TEMPLATE_NAME,
-          env.WHATSAPP_OTP_TEMPLATE_LANG,
-          [code],
-        );
+        // Authentication templates need the code TWICE in params — once for
+        // the body, once for the Copy Code button — per Gupshup's docs
+        // (docs.gupshup.io/reference/sending-authentication-template.md).
+        await provider.sendTemplate(phone, templateName, templateLang, [code, code]);
       } else {
         // No Authentication template configured yet — falls back to the
         // original plain-text send. Only reliable if the recipient has an

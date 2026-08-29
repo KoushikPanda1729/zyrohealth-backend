@@ -44,10 +44,19 @@ export interface AiChatResult {
   imageUrl?: string;
 }
 
+export interface PrescriptionImageCheck {
+  isPrescription: boolean;
+  // Shown to the patient verbatim when isPrescription is false — kept
+  // short and actionable (e.g. "This looks like a selfie, not a
+  // prescription.") rather than a raw model explanation.
+  reason: string;
+}
+
 export interface IAiProvider {
   chat(params: AiChatParams): Promise<AiChatResult>;
   extractStructuredData(
     conversation: Message[],
     patientContext: PatientContext,
   ): Promise<AiStructuredResult>;
+  classifyPrescriptionImage(imageUrl: string): Promise<PrescriptionImageCheck>;
 }

@@ -291,6 +291,28 @@ router.put(
 );
 
 router.get(
+  '/whatsapp/templates',
+  requirePermission('whatsapp.manage_flows'),
+  (req, res, next) => {
+    void ctrl.listWhatsAppTemplates(req, res, next);
+  },
+);
+router.post(
+  '/whatsapp/templates',
+  requirePermission('whatsapp.manage_flows'),
+  (req, res, next) => {
+    void ctrl.createWhatsAppTemplate(req, res, next);
+  },
+);
+router.post(
+  '/whatsapp/templates/send',
+  requirePermission('whatsapp.manage_flows'),
+  (req, res, next) => {
+    void ctrl.sendWhatsAppTemplate(req, res, next);
+  },
+);
+
+router.get(
   '/analytics',
   requirePermission('analytics.view'),
   (req, res, next) => {

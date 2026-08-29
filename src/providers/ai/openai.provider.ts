@@ -1,4 +1,4 @@
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import OpenAI from 'openai';
 import {
   IAiProvider,
@@ -7,9 +7,13 @@ import {
   AiStructuredResult,
   Message,
   PatientContext,
+  PrescriptionImageCheck,
 } from './ai.provider.interface';
+import { IStorageProvider } from '../storage/storage.provider.interface';
 import { env } from '../../config/env';
+import { STORAGE_PROVIDER } from '../../config/container';
 import { AppError } from '../../utils/app-error';
+import { PRESCRIPTION_CLASSIFY_PROMPT, parsePrescriptionCheck } from './prescription-classify.util';
 
 const IMAGE_REQUEST_REGEX =
   /\b(image|picture|photo|show me|visualize|diagram|illustration|draw|visual|graphic|depict|demonstrate visually|yoga pose|exercise|anatomy|anatomy of)\b/i;
@@ -19,8 +23,17 @@ export class OpenAiProvider implements IAiProvider {
   private readonly client: OpenAI;
   private readonly maxRetries = 2;
 
-  constructor() {
+  constructor(@inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider) {
     this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  }
+
+  // Uploaded media (whatsapp-media.util.ts) lands in a private bucket — a
+  // plain https:// URL to it 403s for OpenAI's fetcher, so classification
+  // needs a short-lived signed URL instead. Same bucket key format the
+  // storage provider itself produces on upload (s3.provider.ts#upload).
+  private async toFetchableUrl(imageUrl: string): Promise<string> {
+    const key = decodeURIComponent(new URL(imageUrl).pathname.replace(/^\//, ''));
+    return this.storage.getSignedUrl(key, 300);
   }
 
   async chat(params: AiChatParams): Promise<AiChatResult> {
@@ -101,6 +114,29 @@ export class OpenAiProvider implements IAiProvider {
       params.patientContext,
     );
     return { reply, structured, imageUrl };
+  }
+
+  async classifyPrescriptionImage(imageUrl: string): Promise<PrescriptionImageCheck> {
+    const fetchableUrl = await this.toFetchableUrl(imageUrl);
+    const result = await this.callWithRetry(async () => {
+      const response = await this.client.chat.completions.create({
+        model: env.AI_MODEL,
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: PRESCRIPTION_CLASSIFY_PROMPT },
+              { type: 'image_url', image_url: { url: fetchableUrl, detail: 'high' } },
+            ],
+          },
+        ],
+      });
+      const content = response.choices[0]?.message?.content;
+      if (!content) throw AppError.unprocessable('Empty AI response');
+      return content;
+    });
+    return parsePrescriptionCheck(result);
   }
 
   async generateImage(userMessage: string): Promise<string | undefined> {

@@ -9,6 +9,12 @@ import { env } from '../../config/env';
 // must use a list instead — same limit Meta's provider already enforces.
 const MAX_BUTTONS = 3;
 const SEND_URL = 'https://api.gupshup.io/wa/api/v1/msg';
+// Template/HSM sends (sendTemplate below) use a DIFFERENT endpoint from
+// text/interactive — confirmed via Gupshup's docs
+// (docs.gupshup.io/reference/sending-authentication-template.md); posting a
+// `template` field to SEND_URL returns "Msg cannot be empty" instead of
+// actually sending.
+const TEMPLATE_SEND_URL = 'https://api.gupshup.io/wa/api/v1/template/msg';
 
 export interface GupshupWhatsAppConfig {
   apiKey: string;
@@ -35,12 +41,12 @@ export class GupshupWhatsAppProvider implements IWhatsAppProvider {
     this.config = config ?? defaultGupshupConfig();
   }
 
-  private async post(body: URLSearchParams): Promise<void> {
+  private async post(body: URLSearchParams, url: string = SEND_URL): Promise<void> {
     body.set('channel', 'whatsapp');
     body.set('source', this.config.sourceNumber);
     body.set('src.name', this.config.appName);
 
-    const res = await fetch(SEND_URL, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         apikey: this.config.apiKey,
@@ -77,6 +83,7 @@ export class GupshupWhatsAppProvider implements IWhatsAppProvider {
         destination: to,
         template: JSON.stringify({ id: templateName, params }),
       }),
+      TEMPLATE_SEND_URL,
     );
   }
 

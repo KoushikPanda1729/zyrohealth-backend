@@ -1420,6 +1420,21 @@ export class WhatsAppFlowEngineService {
       return { action: 'wait' };
     }
 
+    // Screen out obviously-wrong photos (selfies, screenshots, random
+    // documents) before creating a real request a shop would otherwise
+    // have to reject manually. Fails open on an AI/network hiccup — see
+    // parsePrescriptionCheck's catch branch — so a genuine upload is never
+    // blocked by our own classifier breaking.
+    const check = await this.ai.classifyPrescriptionImage(media.url);
+    if (!check.isPrescription) {
+      await this.dispatchText(
+        session,
+        sink,
+        `${check.reason} Please send a clear photo of your prescription.`,
+      );
+      return { action: 'wait' };
+    }
+
     // "photo attached" is the app's own placeholder when the patient left
     // the caption blank (see prescription_chat_screen.dart's
     // _ImagePreviewScreen) — not a real note, so it shouldn't show up as

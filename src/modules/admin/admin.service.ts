@@ -26,6 +26,11 @@ import {
 } from '../../entities/WhatsAppFlow';
 import { parseGeneratedFlow } from '../whatsapp/whatsapp-flow-parse.util';
 import { WhatsAppFlowEngineService, AppFlowStep } from '../whatsapp/whatsapp-flow-engine.service';
+import {
+  GupshupTemplateService,
+  GupshupTemplate,
+  CreateTemplateInput,
+} from '../whatsapp/gupshup-template.service';
 import { AppFlowSession } from '../../entities/AppFlowSession';
 import { WhatsAppMessageEvent } from '../../entities/WhatsAppSession';
 import { VoiceAgent } from '../../entities/VoiceAgent';
@@ -116,6 +121,7 @@ export class AdminService {
     private readonly whatsAppBot: WhatsAppBotService,
     private readonly shopAlerts: MedicineShopAlertsService,
     private readonly flowEngine: WhatsAppFlowEngineService,
+    private readonly gupshupTemplates: GupshupTemplateService,
   ) {}
 
   async listDoctors(
@@ -1889,8 +1895,11 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     hasMetaAppSecret: boolean;
     gupshupSourceNumber?: string;
     gupshupAppName?: string;
+    gupshupAppId?: string;
     hasGupshupApiKey: boolean;
     hasGupshupWebhookSecret: boolean;
+    otpTemplateName?: string;
+    otpTemplateLang?: string;
   }> {
     const config = await AppDataSource.getRepository(
       TenantWhatsAppConfig,
@@ -1917,6 +1926,8 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
         gupshupAppName: env.GUPSHUP_APP_NAME || undefined,
         hasGupshupApiKey: Boolean(env.GUPSHUP_API_KEY),
         hasGupshupWebhookSecret: Boolean(env.GUPSHUP_WEBHOOK_SECRET),
+        otpTemplateName: env.WHATSAPP_OTP_TEMPLATE_NAME || undefined,
+        otpTemplateLang: env.WHATSAPP_OTP_TEMPLATE_LANG || undefined,
       };
     }
 
@@ -1932,8 +1943,11 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       hasMetaAppSecret: Boolean(config.metaAppSecret),
       gupshupSourceNumber: config.gupshupSourceNumber,
       gupshupAppName: config.gupshupAppName,
+      gupshupAppId: config.gupshupAppId,
       hasGupshupApiKey: Boolean(config.gupshupApiKey),
       hasGupshupWebhookSecret: Boolean(config.gupshupWebhookSecret),
+      otpTemplateName: config.otpTemplateName ?? (env.WHATSAPP_OTP_TEMPLATE_NAME || undefined),
+      otpTemplateLang: config.otpTemplateLang ?? (env.WHATSAPP_OTP_TEMPLATE_LANG || undefined),
     };
   }
 
@@ -1951,7 +1965,10 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       gupshupApiKey?: string;
       gupshupSourceNumber?: string;
       gupshupAppName?: string;
+      gupshupAppId?: string;
       gupshupWebhookSecret?: string;
+      otpTemplateName?: string;
+      otpTemplateLang?: string;
     },
   ): Promise<{ provider: WhatsAppProviderType }> {
     const repo = AppDataSource.getRepository(TenantWhatsAppConfig);
@@ -2033,9 +2050,35 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
     ) {
       throw AppError.badRequest('Gupshup Source Number and App Name are required');
     }
+    if (data.gupshupAppId !== undefined) config.gupshupAppId = data.gupshupAppId;
+
+    // Not a secret — plaintext is fine, same as any other display name.
+    if (data.otpTemplateName !== undefined) config.otpTemplateName = data.otpTemplateName;
+    if (data.otpTemplateLang !== undefined) config.otpTemplateLang = data.otpTemplateLang;
 
     const saved = await repo.save(config);
     return { provider: saved.provider };
+  }
+
+  // ── Gupshup template management — list/create WhatsApp message
+  // templates and send an already-approved one to a patient ───────────
+
+  async listWhatsAppTemplates(tenantId: string): Promise<GupshupTemplate[]> {
+    return this.gupshupTemplates.listTemplates(tenantId);
+  }
+
+  async createWhatsAppTemplate(
+    tenantId: string,
+    input: CreateTemplateInput,
+  ): Promise<GupshupTemplate> {
+    return this.gupshupTemplates.createTemplate(tenantId, input);
+  }
+
+  async sendWhatsAppTemplate(
+    tenantId: string,
+    data: { phone: string; templateName: string; languageCode: string; params: string[] },
+  ): Promise<void> {
+    return this.gupshupTemplates.sendTemplateMessage(tenantId, data);
   }
 
   // ── Medicine Shops — onboarded pharmacy vendors that quote patient-
