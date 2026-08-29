@@ -100,13 +100,21 @@ export class AuthService {
 
   async sendOtp(
     phone: string,
-    channel: 'sms' | 'whatsapp' = 'sms',
+    channel?: 'sms' | 'whatsapp',
     tenantId?: string,
   ): Promise<void> {
     // The reviewer's fixed phone+code (see verifyOtpAndLogin) has no real
     // SMS/WhatsApp inbox to deliver to — nothing to send.
     if (env.PLAY_REVIEW_PHONE && phone === env.PLAY_REVIEW_PHONE) return;
-    if (channel === 'whatsapp') {
+    // WhatsApp is the default channel everywhere (web/mobile both stopped
+    // offering an SMS option) — caller can still explicitly pass 'sms' if
+    // some future integration needs it. Falls back to a plain-text send
+    // below until WHATSAPP_OTP_TEMPLATE_NAME is configured (only reliable
+    // for a recipient who already has an open WhatsApp session with the
+    // business); switches to the real template automatically once set,
+    // with no further code changes needed here.
+    const resolvedChannel = channel ?? 'whatsapp';
+    if (resolvedChannel === 'whatsapp') {
       const code = await generateAndStoreOtp(phone);
       // Tenant-aware — a tenant with its own configured WhatsApp account
       // (e.g. its own Gupshup number) sends the OTP from THAT number, not
