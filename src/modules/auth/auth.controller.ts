@@ -14,11 +14,12 @@ export class AuthController {
     next: NextFunction,
   ): Promise<void> => {
     try {
-      const { phone, channel } = req.body as {
+      const { phone, channel, tenantId } = req.body as {
         phone: string;
         channel?: 'sms' | 'whatsapp';
+        tenantId?: string;
       };
-      await this.authService.sendOtp(phone, channel);
+      await this.authService.sendOtp(phone, channel, tenantId);
       res.status(200).json(success(null, 'OTP sent successfully'));
     } catch (err) {
       next(err);

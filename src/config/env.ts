@@ -49,6 +49,14 @@ const envSchema = z.object({
   GUPSHUP_SOURCE_NUMBER: z.string().default(''),
   GUPSHUP_APP_NAME: z.string().default(''),
   GUPSHUP_WEBHOOK_SECRET: z.string().default(''),
+  // Name of the pre-approved WhatsApp "Authentication" category template
+  // (see auth.service.ts#sendOtp) — a cold OTP send (no open 24h session
+  // with the patient yet) requires a template; plain text only works if
+  // they already messaged in recently. Empty until one's created and
+  // approved in Gupshup's Templates tab, in which case sendOtp falls back
+  // to the old plain-text send so the "whatsapp" channel keeps working.
+  WHATSAPP_OTP_TEMPLATE_NAME: z.string().default(''),
+  WHATSAPP_OTP_TEMPLATE_LANG: z.string().default('en'),
   AGENT_SERVICE_URL: z.string().optional(),
   AGENT_SERVICE_TOKEN: z.string().optional(),
   LIVEKIT_TOKEN_TTL_MIN: z

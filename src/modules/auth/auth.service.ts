@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { IAuthProvider } from '../../providers/auth/auth.provider.interface';
 import { IWhatsAppProvider } from '../../providers/whatsapp/whatsapp.provider.interface';
+import { WhatsAppProviderResolver } from '../whatsapp/whatsapp-provider-resolver.service';
 import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
 import { IAiProvider } from '../../providers/ai/ai.provider.interface';
 import {
@@ -49,6 +50,7 @@ export class AuthService {
     private readonly whatsAppProvider: IWhatsAppProvider,
     @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
     @inject(AI_PROVIDER) private readonly ai: IAiProvider,
+    private readonly whatsAppProviderResolver: WhatsAppProviderResolver,
   ) {}
 
   // Public — also used by PlatformService for super-admin tenant impersonation.
@@ -99,16 +101,41 @@ export class AuthService {
   async sendOtp(
     phone: string,
     channel: 'sms' | 'whatsapp' = 'sms',
+    tenantId?: string,
   ): Promise<void> {
     // The reviewer's fixed phone+code (see verifyOtpAndLogin) has no real
     // SMS/WhatsApp inbox to deliver to — nothing to send.
     if (env.PLAY_REVIEW_PHONE && phone === env.PLAY_REVIEW_PHONE) return;
     if (channel === 'whatsapp') {
       const code = await generateAndStoreOtp(phone);
-      await this.whatsAppProvider.sendText(
-        phone,
-        `${code} is your ZyroHealth verification code. Valid for 10 minutes. Do not share this with anyone.`,
-      );
+      // Tenant-aware — a tenant with its own configured WhatsApp account
+      // (e.g. its own Gupshup number) sends the OTP from THAT number, not
+      // the platform's global default. Same resolution the app's OTP
+      // login itself already falls back to when no tenant is specified.
+      const resolvedTenantId = tenantId ?? (await getDefaultTenantId());
+      const provider = resolvedTenantId
+        ? await this.whatsAppProviderResolver.resolve(resolvedTenantId)
+        : this.whatsAppProvider;
+      if (env.WHATSAPP_OTP_TEMPLATE_NAME) {
+        // Cold-start safe — works even if this phone number has never
+        // messaged the business before, unlike a plain text send (which
+        // WhatsApp silently drops outside an active 24h session).
+        await provider.sendTemplate(
+          phone,
+          env.WHATSAPP_OTP_TEMPLATE_NAME,
+          env.WHATSAPP_OTP_TEMPLATE_LANG,
+          [code],
+        );
+      } else {
+        // No Authentication template configured yet — falls back to the
+        // original plain-text send. Only reliable if the recipient has an
+        // open WhatsApp session (they messaged in recently); good enough
+        // to keep working during the template's approval wait.
+        await provider.sendText(
+          phone,
+          `${code} is your ZyroHealth verification code. Valid for 10 minutes. Do not share this with anyone.`,
+        );
+      }
       return;
     }
     await this.authProvider.sendOtp(phone);
