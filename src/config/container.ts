@@ -8,12 +8,19 @@ import { S3StorageProvider } from '../providers/storage/s3.provider';
 import { DevWhatsAppProvider } from '../providers/whatsapp/dev.provider';
 import { FailoverWhatsAppProvider } from '../providers/whatsapp/failover-whatsapp.provider';
 import { env } from './env';
+import {
+  AUTH_PROVIDER,
+  AI_PROVIDER,
+  PAYMENT_PROVIDER,
+  STORAGE_PROVIDER,
+  WHATSAPP_PROVIDER,
+} from './di-tokens';
 
-export const AUTH_PROVIDER = Symbol('AUTH_PROVIDER');
-export const AI_PROVIDER = Symbol('AI_PROVIDER');
-export const PAYMENT_PROVIDER = Symbol('PAYMENT_PROVIDER');
-export const STORAGE_PROVIDER = Symbol('STORAGE_PROVIDER');
-export const WHATSAPP_PROVIDER = Symbol('WHATSAPP_PROVIDER');
+// Re-exported so existing `import { X_PROVIDER } from '../../config/container'`
+// call sites keep working unchanged — only provider classes that container.ts
+// itself imports (and therefore can't import back from) need to switch to
+// importing straight from di-tokens.ts instead. See di-tokens.ts for why.
+export { AUTH_PROVIDER, AI_PROVIDER, PAYMENT_PROVIDER, STORAGE_PROVIDER, WHATSAPP_PROVIDER };
 
 // Use the dev OTP provider (fixed code 123456, no SMS) when not in production,
 // or when AUTH_DEV_OTP=true is set explicitly (useful for staging without a paid SMS gateway).

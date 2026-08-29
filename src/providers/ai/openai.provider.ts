@@ -11,7 +11,7 @@ import {
 } from './ai.provider.interface';
 import { IStorageProvider } from '../storage/storage.provider.interface';
 import { env } from '../../config/env';
-import { STORAGE_PROVIDER } from '../../config/container';
+import { STORAGE_PROVIDER } from '../../config/di-tokens';
 import { AppError } from '../../utils/app-error';
 import { PRESCRIPTION_CLASSIFY_PROMPT, parsePrescriptionCheck } from './prescription-classify.util';
 
