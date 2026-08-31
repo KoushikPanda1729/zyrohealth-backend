@@ -8,12 +8,14 @@ import {
   Message,
   PatientContext,
   PrescriptionImageCheck,
+  MedicineCatalogMatch,
 } from './ai.provider.interface';
 import { IStorageProvider } from '../storage/storage.provider.interface';
 import { env } from '../../config/env';
 import { STORAGE_PROVIDER } from '../../config/di-tokens';
 import { AppError } from '../../utils/app-error';
 import { PRESCRIPTION_CLASSIFY_PROMPT, parsePrescriptionCheck } from './prescription-classify.util';
+import { buildMedicineAvailabilityPrompt } from './medicine-availability.util';
 
 const IMAGE_REQUEST_REGEX =
   /\b(image|picture|photo|show me|visualize|diagram|illustration|draw|visual|graphic|depict|demonstrate visually|yoga pose|exercise|anatomy|anatomy of)\b/i;
@@ -137,6 +139,22 @@ export class OpenAiProvider implements IAiProvider {
       return content;
     });
     return parsePrescriptionCheck(result);
+  }
+
+  async answerMedicineAvailabilityQuery(
+    query: string,
+    matches: MedicineCatalogMatch[],
+  ): Promise<string> {
+    return this.callWithRetry(async () => {
+      const response = await this.client.chat.completions.create({
+        model: env.AI_MODEL,
+        max_tokens: 250,
+        messages: [{ role: 'user', content: buildMedicineAvailabilityPrompt(query, matches) }],
+      });
+      const content = response.choices[0]?.message?.content;
+      if (!content) throw AppError.unprocessable('Empty AI response');
+      return content.trim();
+    });
   }
 
   async generateImage(userMessage: string): Promise<string | undefined> {

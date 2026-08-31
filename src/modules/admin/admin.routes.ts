@@ -578,6 +578,14 @@ router.post(
     void ctrl.createShopCatalogItem(req, res, next);
   },
 );
+router.post(
+  '/medicine-shops/:id/catalog/images',
+  requirePermission('medicine_shops.dispatch'),
+  uploadMiddleware.array('files', 6),
+  (req, res, next) => {
+    void ctrl.uploadShopCatalogImages(req, res, next);
+  },
+);
 router.patch(
   '/medicine-shops/:id/catalog/:itemId',
   requirePermission('medicine_shops.dispatch'),

@@ -35,6 +35,7 @@ import {
 } from '../medicine-shops/quote-processing.util';
 import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
 import { createOrderFromQuote as createOrderFromQuoteUtil } from '../medicine-shops/medicine-order.util';
+import { searchMedicineCatalog } from '../medicine-shops/catalog-search.util';
 import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
 import { env } from '../../config/env';
 
@@ -293,8 +294,16 @@ export class WhatsAppBotService {
       } else if (choice === 3) {
         await this.startBookingFlow(session);
       } else {
-        await this.startPrescriptionUploadFlow(session);
+        await this.startOrderMedicineChoice(session);
       }
+    } else if (
+      session.conversationState === WhatsAppConversationState.ORDER_MEDICINE_CHOICE
+    ) {
+      await this.handleOrderMedicineChoice(session, trimmed);
+    } else if (
+      session.conversationState === WhatsAppConversationState.AWAITING_MEDICINE_SEARCH
+    ) {
+      await this.handleMedicineSearch(session, trimmed);
     } else if (
       session.conversationState === WhatsAppConversationState.BOOKING_SPECIALTY
     ) {
@@ -726,6 +735,51 @@ export class WhatsAppBotService {
   }
 
   // ── Prescription upload → medicine shop quoting ───────────────────
+
+  private async startOrderMedicineChoice(session: WhatsAppSession): Promise<void> {
+    session.conversationState = WhatsAppConversationState.ORDER_MEDICINE_CHOICE;
+    await this.replyInteractive(session, `How would you like to order?`, [
+      { id: '1', title: 'Upload Prescription', description: 'Send a photo for a price quote' },
+      { id: '2', title: 'Search Medicine', description: 'Type a medicine name to check availability' },
+    ]);
+  }
+
+  private async handleOrderMedicineChoice(
+    session: WhatsAppSession,
+    trimmed: string,
+  ): Promise<void> {
+    const idx = matchOptionIndex(trimmed, ['Upload Prescription', 'Search Medicine']);
+    if (idx === 0) {
+      await this.startPrescriptionUploadFlow(session);
+    } else if (idx === 1) {
+      session.conversationState = WhatsAppConversationState.AWAITING_MEDICINE_SEARCH;
+      await this.reply(
+        session,
+        `What medicine are you looking for? Just type the name.\n\n(Type "cancel" to go back to the menu.)`,
+      );
+    } else {
+      await this.reply(session, INVALID_CHOICE_TEXT);
+    }
+  }
+
+  private async handleMedicineSearch(
+    session: WhatsAppSession,
+    trimmed: string,
+  ): Promise<void> {
+    if (trimmed.toLowerCase() === 'cancel') {
+      session.conversationState = WhatsAppConversationState.MAIN_MENU;
+      await this.reply(session, `Cancelled.`);
+      await this.replyMainMenu(session);
+      return;
+    }
+
+    const matches = await searchMedicineCatalog(session.tenantId!, trimmed);
+    const answer = await this.ai.answerMedicineAvailabilityQuery(trimmed, matches);
+    await this.reply(
+      session,
+      `${answer}\n\nType another medicine name to search, or "cancel" to go back to the menu.`,
+    );
+  }
 
   private async startPrescriptionUploadFlow(
     session: WhatsAppSession,

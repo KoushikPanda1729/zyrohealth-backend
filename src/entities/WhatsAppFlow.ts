@@ -37,7 +37,14 @@ export type WhatsAppFlowNodeType =
   | 'await_shop_quotes'
   | 'select_quote'
   | 'order_payment'
-  | 'track_delivery';
+  | 'track_delivery'
+  // Alternative to upload_prescription — patient types a medicine name
+  // instead of a photo, gets an AI-grounded answer against the tenant's own
+  // shop catalogs (catalog-search.util.ts), and can keep querying (loops on
+  // itself) until they type "menu" to leave. No admin-authored `data`
+  // either — same standardized-business-logic spirit as the other
+  // prescription-flow nodes above.
+  | 'search_medicine';
 
 export interface WhatsAppFlowNode {
   id: string;

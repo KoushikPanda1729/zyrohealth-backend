@@ -7,6 +7,7 @@ import {
   Message,
   PatientContext,
   PrescriptionImageCheck,
+  MedicineCatalogMatch,
 } from './ai.provider.interface';
 
 // TODO: Implement GPT-4o provider
@@ -24,6 +25,13 @@ export class Gpt4oAiProvider implements IAiProvider {
   }
 
   classifyPrescriptionImage(_imageUrl: string): Promise<PrescriptionImageCheck> {
+    throw new Error('Gpt4oAiProvider not implemented');
+  }
+
+  answerMedicineAvailabilityQuery(
+    _query: string,
+    _matches: MedicineCatalogMatch[],
+  ): Promise<string> {
     throw new Error('Gpt4oAiProvider not implemented');
   }
 }

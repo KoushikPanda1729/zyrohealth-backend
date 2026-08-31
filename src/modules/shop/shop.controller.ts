@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { ShopService } from './shop.service';
 import { success } from '../../utils/api-response';
 import { AppError } from '../../utils/app-error';
@@ -15,6 +15,8 @@ import { PayrollMode } from '../../entities/MedicineShopStaffProfile';
 import { WhatsAppProviderType } from '../../entities/TenantWhatsAppConfig';
 import { WhatsAppFlowDefinition } from '../../entities/WhatsAppFlow';
 import { MedicineOrderStatus } from '../../entities/MedicineOrder';
+import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
+import { STORAGE_PROVIDER } from '../../config/di-tokens';
 
 interface StaffProfileUpdateBody {
   employeeCode?: string;
@@ -33,6 +35,10 @@ interface StaffProfileUpdateBody {
   isActive?: boolean;
 }
 
+interface HasImageUrls {
+  imageUrls: string[];
+}
+
 function shopOf(req: Request): string {
   if (!req.user?.shopId) throw AppError.forbidden('No shop context');
   return req.user.shopId;
@@ -45,7 +51,10 @@ function userIdOf(req: Request): string {
 
 @injectable()
 export class ShopController {
-  constructor(private readonly shopService: ShopService) {}
+  constructor(
+    private readonly shopService: ShopService,
+    @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
+  ) {}
 
   listMyQuoteRequests = async (
     req: Request,
@@ -156,8 +165,8 @@ export class ShopController {
   ): Promise<void> => {
     try {
       const { orderId } = req.params as { orderId: string };
-      const { status } = req.body as { status: MedicineOrderStatus };
-      const order = await this.shopService.updateMyOrderStatus(shopOf(req), orderId, status);
+      const { status, reason } = req.body as { status: MedicineOrderStatus; reason?: string };
+      const order = await this.shopService.updateMyOrderStatus(shopOf(req), orderId, status, userIdOf(req), reason);
       res.status(200).json(success(order, 'Order status updated'));
     } catch (err) {
       next(err);
@@ -188,7 +197,7 @@ export class ShopController {
   ): Promise<void> => {
     try {
       const items = await this.shopService.listMyCatalog(shopOf(req));
-      res.status(200).json(success(items));
+      res.status(200).json(success(await this.signItems(items)));
     } catch (err) {
       next(err);
     }
@@ -212,7 +221,7 @@ export class ShopController {
         priceCents,
         ...extractCatalogFieldsFromBody(req.body as Record<string, unknown>),
       });
-      res.status(201).json(success(item, 'Medicine added'));
+      res.status(201).json(success(await this.signItem(item), 'Medicine added'));
     } catch (err) {
       next(err);
     }
@@ -240,7 +249,7 @@ export class ShopController {
           ...extractCatalogFieldsFromBody(req.body as Record<string, unknown>),
         },
       );
-      res.status(200).json(success(item, 'Medicine updated'));
+      res.status(200).json(success(await this.signItem(item), 'Medicine updated'));
     } catch (err) {
       next(err);
     }
@@ -315,6 +324,54 @@ export class ShopController {
         })),
       );
       res.status(200).json(success(fields));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  // The catalog-images bucket prefix is private (same as every other
+  // upload in this app) — a raw imageUrls entry 403s in a browser, so it
+  // needs a freshly signed URL on every read rather than being served as-is.
+  private async signImageUrl(url: string): Promise<string> {
+    try {
+      const key = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
+      return await this.storage.getSignedUrl(key, 3600);
+    } catch {
+      return url;
+    }
+  }
+
+  private async signItem<T extends HasImageUrls>(item: T): Promise<T> {
+    return { ...item, imageUrls: await Promise.all(item.imageUrls.map((u) => this.signImageUrl(u))) };
+  }
+
+  private async signItems<T extends HasImageUrls>(items: T[]): Promise<T[]> {
+    return Promise.all(items.map((i) => this.signItem(i)));
+  }
+
+  // Real product photos, persisted to storage and attached to a catalog
+  // item's imageUrls — separate concern from scanCatalogImage above, which
+  // only ever reads a photo in-memory to extract fields, never keeps it.
+  uploadCatalogImages = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      if (files.length === 0) throw AppError.badRequest('No image uploaded');
+      const nonImage = files.find((f) => !f.mimetype.startsWith('image/'));
+      if (nonImage) throw AppError.badRequest('Only image uploads (JPEG/PNG/WEBP) are allowed');
+
+      const shopId = shopOf(req);
+      const urls = await Promise.all(
+        files.map((f, i) => {
+          const ext = f.mimetype.split('/')[1]?.split(';')[0] ?? 'jpg';
+          const key = `catalog-images/${shopId}/${Date.now()}-${i}.${ext}`;
+          return this.storage.upload(key, f.buffer, f.mimetype);
+        }),
+      );
+      res.status(200).json(success({ urls }));
     } catch (err) {
       next(err);
     }

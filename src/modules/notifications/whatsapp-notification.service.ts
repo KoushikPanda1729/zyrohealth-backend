@@ -49,12 +49,18 @@ export class WhatsAppNotificationService {
     order: MedicineOrder,
     phone: string | undefined,
     status: MedicineOrderStatus,
+    // Shown to the patient verbatim for a cancellation (why it happened) —
+    // omitted from every other status, where the plain status label is
+    // self-explanatory and a generic note would just be noise.
+    note?: string,
   ): Promise<void> {
     if (!phone) return Promise.resolve();
+    const reasonSuffix =
+      status === MedicineOrderStatus.CANCELLED && note ? ` Reason: ${note}` : '';
     return this.safeSend(order.tenantId!, (provider) =>
       provider.sendText(
         phone,
-        `Update on your medicine order: it has been ${STATUS_LABELS[status]}.`,
+        `Update on your medicine order: it has been ${STATUS_LABELS[status]}.${reasonSuffix}`,
       ),
     );
   }

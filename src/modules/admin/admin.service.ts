@@ -447,6 +447,7 @@ export class AdminService {
       order,
       patient?.phoneNumber,
       status,
+      note,
     );
 
     return order;
@@ -2293,6 +2294,24 @@ DATA DOMAINS THIS USER DOES NOT HAVE ACCESS TO (case 1 above — never answer ab
       where: { shopId },
       order: { name: 'ASC' },
     });
+  }
+
+  // Same storage the shop's own portal uploads catalog photos to
+  // (shop.controller.ts#uploadCatalogImages) — a tenant admin managing a
+  // shop's catalog on their behalf needs the same capability.
+  async uploadShopCatalogImages(
+    tenantId: string,
+    shopId: string,
+    files: { buffer: Buffer; mimetype: string }[],
+  ): Promise<string[]> {
+    await this.assertShopInTenant(tenantId, shopId);
+    return Promise.all(
+      files.map((f, i) => {
+        const ext = f.mimetype.split('/')[1]?.split(';')[0] ?? 'jpg';
+        const key = `catalog-images/${shopId}/${Date.now()}-${i}.${ext}`;
+        return this.storage.upload(key, f.buffer, f.mimetype);
+      }),
+    );
   }
 
   async createShopCatalogItem(

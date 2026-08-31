@@ -41,6 +41,7 @@ import { bannersRouter } from './modules/banners/banners.routes';
 import { policiesRouter } from './modules/policies/policies.routes';
 import { shopRouter } from './modules/shop/shop.routes';
 import { patientFlowRouter } from './modules/patient-flow/patient-flow.routes';
+import { patientCatalogRouter } from './modules/patient-catalog/patient-catalog.routes';
 import { PaymentsController } from './modules/payments/payments.controller';
 import { WhatsAppWebhookController } from './modules/whatsapp/whatsapp-webhook.controller';
 import { container } from './config/container';
@@ -153,6 +154,7 @@ export function createApp(): Express {
   app.use('/api/voice-agent/webhook', voiceAgentWebhookRouter);
   app.use('/api/shop', shopRouter);
   app.use('/api/patient-flow', patientFlowRouter);
+  app.use('/api/patient/medicines', patientCatalogRouter);
 
   app.use(errorMiddleware);
 

@@ -99,6 +99,115 @@ export async function createOrderFromQuote(params: {
   return savedOrder;
 }
 
+// Sibling to createOrderFromQuote for the OTHER way an order gets placed —
+// straight from a shop's own catalog (Search Medicine over WhatsApp/chat,
+// or the web/app catalog browsing page) rather than a shop manually
+// quoting an uploaded prescription. No requestId/quoteId since there's no
+// prescription/quote involved — price/stock is already known
+// deterministically from the catalog itself.
+export async function createDirectCatalogOrder(params: {
+  tenantId: string;
+  patientId: string;
+  shopId: string;
+  items: { catalogItemId: string; name: string; quantity: number; unitPriceCents: number }[];
+  // Structured fields — a real checkout form collects these separately.
+  // The WhatsApp/chat flow (which only ever gets one free-text reply) puts
+  // everything in line1 and passes '—' placeholders for the rest, same
+  // convention createOrderFromQuote already uses for its own address field.
+  deliveryAddressLine1: string;
+  deliveryAddressLine2?: string;
+  deliveryCity: string;
+  deliveryState: string;
+  deliveryPincode: string;
+  deliveryPhone: string;
+  paymentMethod: MedicineOrderPaymentMethod;
+  shopAlerts: MedicineShopAlertsService;
+  sourceNote?: string;
+}): Promise<MedicineOrder> {
+  const {
+    tenantId, patientId, shopId, items,
+    deliveryAddressLine1, deliveryAddressLine2, deliveryCity, deliveryState, deliveryPincode,
+    deliveryPhone, paymentMethod, shopAlerts, sourceNote,
+  } = params;
+
+  const orderedItems: OrderedMedicineItem[] = items.map((i) => ({
+    name: i.name,
+    quantity: i.quantity,
+    unitPriceCents: i.unitPriceCents,
+    subtotalCents: i.unitPriceCents * i.quantity,
+    catalogItemId: i.catalogItemId,
+  }));
+  const totalCents = orderedItems.reduce((sum, i) => sum + i.subtotalCents, 0);
+
+  const orderRepo = AppDataSource.getRepository(MedicineOrder);
+  const order = orderRepo.create({
+    tenantId,
+    patientId,
+    shopId,
+    items: orderedItems,
+    totalCents,
+    status: MedicineOrderStatus.PLACED,
+    paymentMethod,
+    deliveryAddressLine1,
+    deliveryAddressLine2,
+    deliveryCity,
+    deliveryState,
+    deliveryPincode,
+    deliveryPhone,
+    // A shop's own order list (shop.service.ts#listMyOrders) only shows
+    // orders with shopNotifiedAt set — that gate exists for the
+    // prescription-quote marketplace, where several shops compete for one
+    // request and only the tenant admin knows which quote actually won.
+    // None of that ambiguity applies here: the patient bought straight from
+    // THIS shop's own catalog, so there's nothing to wait on — stamp it
+    // immediately so the shop can see and fulfil it right away, same as
+    // notifyShopOrderReady does once an admin confirms online payment
+    // (this is COD-only for now, so there's no equivalent "payment
+    // confirmed" moment to wait for either).
+    shopNotifiedAt: new Date(),
+    statusHistory: [
+      {
+        status: MedicineOrderStatus.PLACED,
+        at: new Date().toISOString(),
+        note: sourceNote ?? 'Ordered directly from shop catalog',
+      },
+    ],
+  });
+  const savedOrder = await orderRepo.save(order);
+
+  try {
+    const shop = await AppDataSource.getRepository(MedicineShop).findOne({ where: { id: shopId } });
+    if (shop) {
+      const itemLines = orderedItems.map((i) => `- ${i.quantity} x ${i.name}`).join('\n');
+      const address = [deliveryAddressLine1, deliveryAddressLine2, deliveryCity, deliveryState, deliveryPincode]
+        .filter(Boolean)
+        .join(', ');
+      await shopAlerts.sendShopMessage(
+        shop,
+        `🛒 New order ${savedOrder.id.slice(0, 8)} (Cash on Delivery) — ₹${(totalCents / 100).toFixed(2)}\n\n${itemLines}\n\nDeliver to: ${address}\nContact: ${deliveryPhone}`,
+      );
+    }
+  } catch (err) {
+    console.error(`[MedicineOrder] Shop notify failed: ${formatWhatsAppError(err)}`);
+  }
+
+  try {
+    const { crossedLowStock } = await decrementStockForOrder(
+      shopId,
+      orderedItems.map((i) => ({ name: i.name, quantity: i.quantity })),
+    );
+    if (crossedLowStock.length > 0) {
+      await notifyShopLowStock(shopId, crossedLowStock, shopAlerts);
+    }
+  } catch (err) {
+    console.error(
+      `[MedicineOrder] Stock decrement/low-stock notify failed: ${formatWhatsAppError(err)}`,
+    );
+  }
+
+  return savedOrder;
+}
+
 async function notifyShopLowStock(
   shopId: string,
   items: MedicineShopCatalogItem[],

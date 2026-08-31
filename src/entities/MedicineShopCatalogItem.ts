@@ -45,6 +45,13 @@ export class MedicineShopCatalogItem extends BaseEntity {
   @Column({ type: 'varchar', nullable: true })
   manufacturer?: string | null;
 
+  // Product photos — shown on the patient-facing catalog (health-frontend's
+  // Medicines page, health-mobile's equivalent) so a listing isn't just
+  // bare text. First entry is the "primary" image wherever only one is
+  // shown (a listing card); order otherwise has no other meaning.
+  @Column({ name: 'image_urls', type: 'jsonb', default: '[]' })
+  imageUrls!: string[];
+
   @Column({ type: 'varchar', nullable: true })
   sku?: string | null;
 

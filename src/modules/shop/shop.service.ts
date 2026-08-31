@@ -11,6 +11,7 @@ import { PrescriptionUploadRequest } from '../../entities/PrescriptionUploadRequ
 import { MedicineOrder, MedicineOrderStatus } from '../../entities/MedicineOrder';
 import { Tenant } from '../../entities/Tenant';
 import { AppError } from '../../utils/app-error';
+import { assertValidTransition } from '../../utils/order-status-transitions';
 import { WhatsAppBotService } from '../whatsapp/whatsapp-bot.service';
 import { AuthService } from '../auth/auth.service';
 import { listShopStaff, inviteShopStaff, toggleShopStaffActive } from '../medicine-shops/staff.util';
@@ -344,54 +345,99 @@ export class ShopService {
   // that, the shop has no way to know whether their quote even won,
   // matching the deliberate "admin controls when the shop finds out"
   // design (see AdminService.notifyShopOrderReady).
-  async listMyOrders(shopId: string): Promise<MedicineOrder[]> {
-    return AppDataSource.getRepository(MedicineOrder).find({
+  // Same shape admin.service.ts's own attachPatientInfo produces — a shop
+  // seeing who the order is for is just as useful as the tenant admin
+  // seeing it, and MedicineOrder only stores a raw patientId (no ORM
+  // relation), so both sides need this same manual join.
+  private async attachPatientInfo<T extends MedicineOrder>(
+    orders: T[],
+  ): Promise<(T & { patient: { fullName?: string; phoneNumber?: string } })[]> {
+    const patientIds = [...new Set(orders.map((o) => o.patientId))];
+    const patients = patientIds.length
+      ? await AppDataSource.getRepository(User).findBy({ id: In(patientIds) })
+      : [];
+    const byId = new Map(patients.map((p) => [p.id, p]));
+    return orders.map((order) => ({
+      ...order,
+      patient: {
+        fullName: byId.get(order.patientId)?.fullName,
+        phoneNumber: byId.get(order.patientId)?.phoneNumber,
+      },
+    }));
+  }
+
+  async listMyOrders(shopId: string): Promise<(MedicineOrder & { patient: { fullName?: string; phoneNumber?: string } })[]> {
+    const orders = await AppDataSource.getRepository(MedicineOrder).find({
       where: { shopId, shopNotifiedAt: Not(IsNull()) },
       order: { shopNotifiedAt: 'DESC' },
     });
+    return this.attachPatientInfo(orders);
   }
 
-  async getMyOrder(shopId: string, orderId: string): Promise<MedicineOrder> {
+  async getMyOrder(shopId: string, orderId: string): Promise<MedicineOrder & { patient: { fullName?: string; phoneNumber?: string } }> {
     const order = await AppDataSource.getRepository(MedicineOrder).findOne({
       where: { id: orderId, shopId, shopNotifiedAt: Not(IsNull()) },
     });
     if (!order) throw AppError.notFound('Order');
-    return order;
+    const [withPatient] = await this.attachPatientInfo([order]);
+    return withPatient;
   }
 
-  // Restricted to the forward delivery sequence only — a shop can't skip
-  // ahead arbitrarily or move an order backwards.
-  private static readonly ORDER_STATUS_SEQUENCE: MedicineOrderStatus[] = [
+  // The forward delivery sequence a shop can advance through one step at a
+  // time (checked against the order's ACTUAL current status via
+  // assertValidTransition, the same shared rule admin.service.ts's own
+  // status update uses — includes 'confirmed' as a valid current status too
+  // for a COD direct-catalog order still sitting at 'placed'). CANCELLED is
+  // the one non-forward target a shop is also allowed — same as an admin
+  // can, but only up through 'picked_up' (assertValidTransition already
+  // has no cancel path out of 'out_for_delivery'/'delivered'). Anything
+  // else (e.g. 'confirmed' — that's specifically an admin payment-
+  // confirmation action) stays off-limits to a shop.
+  private static readonly SHOP_ALLOWED_TARGETS: MedicineOrderStatus[] = [
     MedicineOrderStatus.PACKED,
     MedicineOrderStatus.PICKED_UP,
     MedicineOrderStatus.OUT_FOR_DELIVERY,
     MedicineOrderStatus.DELIVERED,
+    MedicineOrderStatus.CANCELLED,
   ];
 
   async updateMyOrderStatus(
     shopId: string,
     orderId: string,
     status: MedicineOrderStatus,
+    userId: string,
+    cancelReason?: string,
   ): Promise<MedicineOrder> {
     const order = await this.getMyOrder(shopId, orderId);
 
-    const nextIndex = ShopService.ORDER_STATUS_SEQUENCE.indexOf(status);
-    if (nextIndex === -1) {
+    if (!ShopService.SHOP_ALLOWED_TARGETS.includes(status)) {
       throw AppError.badRequest('Invalid delivery status for a shop to set');
     }
-    const currentIndex = ShopService.ORDER_STATUS_SEQUENCE.indexOf(order.status);
-    if (nextIndex !== currentIndex + 1) {
-      throw AppError.badRequest(
-        `Order must move through ${ShopService.ORDER_STATUS_SEQUENCE.join(' → ')} in order`,
-      );
-    }
+    assertValidTransition(order.status, status);
 
     order.status = status;
+    if (status === MedicineOrderStatus.CANCELLED) {
+      order.cancelReason = cancelReason;
+      order.cancelledBy = userId;
+    }
     order.statusHistory = [
       ...order.statusHistory,
-      { status, at: new Date().toISOString() },
+      { status, at: new Date().toISOString(), byUserId: userId, note: status === MedicineOrderStatus.CANCELLED ? cancelReason : undefined },
     ];
-    return AppDataSource.getRepository(MedicineOrder).save(order);
+    const saved = await AppDataSource.getRepository(MedicineOrder).save(order);
+
+    // Same patient notification the admin's own status-update already
+    // sends (admin.service.ts#updateMedicineOrderStatus) — a shop packing/
+    // shipping/cancelling an order is just as real a status change as one
+    // an admin makes, so the patient shouldn't only hear about half of them.
+    void this.whatsAppNotification.notifyOrderStatusChanged(
+      saved,
+      order.patient?.phoneNumber,
+      status,
+      cancelReason,
+    );
+
+    return saved;
   }
 
   // The shop's own profile + which tenant it serves — a shop is onboarded

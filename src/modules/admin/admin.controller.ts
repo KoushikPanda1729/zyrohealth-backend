@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { injectable } from 'tsyringe';
+import { injectable, inject } from 'tsyringe';
 import { AdminService } from './admin.service';
+import { IStorageProvider } from '../../providers/storage/storage.provider.interface';
+import { STORAGE_PROVIDER } from '../../config/di-tokens';
 import { success, paginated } from '../../utils/api-response';
 import { AppError } from '../../utils/app-error';
 import { DocumentType } from '../../entities/DoctorDocument';
@@ -25,9 +27,38 @@ function tenantOf(req: Request): string {
   return req.user.tenantId;
 }
 
+interface HasImageUrls {
+  imageUrls: string[];
+}
+
 @injectable()
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    @inject(STORAGE_PROVIDER) private readonly storage: IStorageProvider,
+  ) {}
+
+  // The catalog-images bucket prefix is private — a raw imageUrls entry
+  // 403s in a browser, so it needs a freshly signed URL on every read
+  // rather than being served as-is. Same pattern as shop.controller.ts's
+  // own signItem/signItems, duplicated rather than shared since the two
+  // controllers don't otherwise depend on each other.
+  private async signImageUrl(url: string): Promise<string> {
+    try {
+      const key = decodeURIComponent(new URL(url).pathname.replace(/^\//, ''));
+      return await this.storage.getSignedUrl(key, 3600);
+    } catch {
+      return url;
+    }
+  }
+
+  private async signItem<T extends HasImageUrls>(item: T): Promise<T> {
+    return { ...item, imageUrls: await Promise.all(item.imageUrls.map((u) => this.signImageUrl(u))) };
+  }
+
+  private async signItems<T extends HasImageUrls>(items: T[]): Promise<T[]> {
+    return Promise.all(items.map((i) => this.signItem(i)));
+  }
 
   listDoctors = async (
     req: Request,
@@ -1415,7 +1446,7 @@ export class AdminController {
     try {
       const { id } = req.params as { id: string };
       const items = await this.adminService.listShopCatalog(tenantOf(req), id);
-      res.status(200).json(success(items));
+      res.status(200).json(success(await this.signItems(items)));
     } catch (err) {
       next(err);
     }
@@ -1444,7 +1475,7 @@ export class AdminController {
           ...extractCatalogFieldsFromBody(req.body as Record<string, unknown>),
         },
       );
-      res.status(201).json(success(item, 'Medicine added'));
+      res.status(201).json(success(await this.signItem(item), 'Medicine added'));
     } catch (err) {
       next(err);
     }
@@ -1473,7 +1504,30 @@ export class AdminController {
           ...extractCatalogFieldsFromBody(req.body as Record<string, unknown>),
         },
       );
-      res.status(200).json(success(item, 'Medicine updated'));
+      res.status(200).json(success(await this.signItem(item), 'Medicine updated'));
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  uploadShopCatalogImages = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ): Promise<void> => {
+    try {
+      const { id } = req.params as { id: string };
+      const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+      if (files.length === 0) throw AppError.badRequest('No image uploaded');
+      const nonImage = files.find((f) => !f.mimetype.startsWith('image/'));
+      if (nonImage) throw AppError.badRequest('Only image uploads (JPEG/PNG/WEBP) are allowed');
+
+      const urls = await this.adminService.uploadShopCatalogImages(
+        tenantOf(req),
+        id,
+        files.map((f) => ({ buffer: f.buffer, mimetype: f.mimetype })),
+      );
+      res.status(200).json(success({ urls }));
     } catch (err) {
       next(err);
     }

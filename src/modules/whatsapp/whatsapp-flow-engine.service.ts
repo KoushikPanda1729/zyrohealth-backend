@@ -39,7 +39,8 @@ import { formatWhatsAppError } from '../../providers/whatsapp/format-whatsapp-er
 import { WhatsAppProviderResolver } from './whatsapp-provider-resolver.service';
 import { MedicineShopAlertsService } from '../medicine-shops/medicine-shop-alerts.service';
 import { markSiblingQuotesNotSelected } from '../medicine-shops/quote-processing.util';
-import { createOrderFromQuote } from '../medicine-shops/medicine-order.util';
+import { createOrderFromQuote, createDirectCatalogOrder } from '../medicine-shops/medicine-order.util';
+import { searchMedicineCatalog } from '../medicine-shops/catalog-search.util';
 import { MedicineOrderPaymentsService } from '../medicine-order-payments/medicine-order-payments.service';
 import { PaymentsService } from '../payments/payments.service';
 import { MedicineOrdersService } from '../medicine-orders/medicine-orders.service';
@@ -238,6 +239,72 @@ function interpolate(text: string, vars: Record<string, unknown>): string {
   return text.replace(/\{\{(\w+)\}\}/g, (_match, key: string) =>
     stringifyVar(vars[key]),
   );
+}
+
+// ── Search Medicine's cart — stored in session.flowVariables, plain JSON so
+// it round-trips through the jsonb column same as any other flow variable.
+// Deliberately single-shop (MedicineOrder#shopId is one field, not a list)
+// — see executeSearchMedicine's shop-mismatch handling below.
+interface MedicineCartItem {
+  catalogItemId: string;
+  name: string;
+  quantity: number;
+  unitPriceCents: number;
+}
+interface MedicineCart {
+  shopId: string;
+  shopName: string;
+  items: MedicineCartItem[];
+}
+interface PendingCatalogAdd {
+  catalogItemId: string;
+  name: string;
+  unitPriceCents: number;
+  shopId: string;
+  shopName: string;
+}
+
+function formatRupees(cents: number): string {
+  return (cents / 100).toFixed(2);
+}
+
+function addToCart(cart: MedicineCart | undefined, pending: PendingCatalogAdd): MedicineCart {
+  const base: MedicineCart = cart ?? { shopId: pending.shopId, shopName: pending.shopName, items: [] };
+  const existing = base.items.find((i) => i.catalogItemId === pending.catalogItemId);
+  const items = existing
+    ? base.items.map((i) =>
+        i.catalogItemId === pending.catalogItemId ? { ...i, quantity: i.quantity + 1 } : i,
+      )
+    : [
+        ...base.items,
+        { catalogItemId: pending.catalogItemId, name: pending.name, quantity: 1, unitPriceCents: pending.unitPriceCents },
+      ];
+  return { ...base, items };
+}
+
+function addMultipleToCart(cart: MedicineCart | undefined, pendings: PendingCatalogAdd[]): MedicineCart {
+  return pendings.reduce((acc: MedicineCart | undefined, p) => addToCart(acc, p), cart) as MedicineCart;
+}
+
+// Best-effort split for a patient listing several medicines in one message
+// ("Paracetamol and Cough Syrup", "X, Y, Z") — not a full NLP parser, just
+// the common ways people naturally type a list. Deliberately conservative:
+// \band\b/\bx\b only match a STANDALONE word (surrounded by word
+// boundaries), so they don't fire inside a medicine name that happens to
+// contain "x" (Amoxicillin) or where "and" is a substring.
+function splitMedicineNames(text: string): string[] {
+  return text
+    .split(/\s*(?:,|\+|\n|\band\b|\bx\b)\s*/gi)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function cartSummary(cart: MedicineCart): string {
+  const lines = cart.items.map(
+    (i) => `- ${i.quantity} x ${i.name} (₹${formatRupees(i.unitPriceCents * i.quantity)})`,
+  );
+  const total = cart.items.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);
+  return `Your order so far (${cart.shopName}):\n${lines.join('\n')}\nTotal: ₹${formatRupees(total)}`;
 }
 
 function getByPath(obj: unknown, path: string): unknown {
@@ -613,6 +680,9 @@ export class WhatsAppFlowEngineService {
 
       case 'upload_prescription':
         return this.executeUploadPrescription(session, inputText, media, consumeInput, outgoing, sink);
+
+      case 'search_medicine':
+        return this.executeSearchMedicine(session, inputText, consumeInput, outgoing, sink);
 
       case 'await_shop_quotes':
         return this.executeAwaitShopQuotes(session, outgoing, sink);
@@ -1455,6 +1525,354 @@ export class WhatsAppFlowEngineService {
     );
     session.flowVariables = { ...session.flowVariables, requestId: request.id };
     await this.dispatchText(session, sink, `Got it, we'll get you a quote shortly.`);
+    return this.advanceTo(outgoing[0]);
+  }
+
+  // Alternative to executeUploadPrescription — the patient types a medicine
+  // name instead of sending a photo, can add real catalog matches to a
+  // running cart, then checks out directly (COD only for now — see
+  // completeCatalogCheckout). Loops on itself turn after turn outside
+  // checkout (never calls advanceTo until an order is actually placed);
+  // the only way out beforehand is typing a GREETING_WORDS word (e.g.
+  // "menu"), which runTurn already resets flowNodeId for globally, before
+  // this node ever runs.
+  private async executeSearchMedicine(
+    session: FlowSession,
+    inputText: string,
+    consumeInput: boolean,
+    outgoing: WhatsAppFlowEdge[],
+    sink: FlowSink,
+  ): Promise<NodeOutcome> {
+    if (!consumeInput) {
+      // A "fresh" (non-input-consuming) re-entry happens after the inline
+      // signup fall-through (see executeNode) too — checkoutStage survives
+      // that untouched, so without this check the NEXT real message
+      // (whatever it is) would get silently swallowed as the delivery
+      // address by the checkoutStage branch below instead of being asked
+      // for properly.
+      if (session.flowVariables['checkoutStage'] === 'address') {
+        await this.dispatchText(
+          session,
+          sink,
+          `Please reply with your full delivery address (house/street, city, state, pincode).`,
+        );
+        return { action: 'wait' };
+      }
+      // Same reasoning as the checkoutStage guard above — a stale
+      // searchMedicineStage would otherwise make the NEXT real reply get
+      // matched against buttons we didn't actually just show again.
+      session.flowVariables = { ...session.flowVariables, pendingCatalogAdd: undefined, searchMedicineStage: undefined };
+      await this.dispatchText(
+        session,
+        sink,
+        `What medicine are you looking for? Just type the name (or type "menu" to go back).`,
+      );
+      return { action: 'wait' };
+    }
+
+    if (!session.tenantId) {
+      await this.dispatchText(session, sink, `Something went wrong — please start over.`);
+      return { action: 'end' };
+    }
+
+    const trimmed = inputText.trim();
+    const cart = session.flowVariables['medicineCart'] as MedicineCart | undefined;
+
+    if (session.flowVariables['checkoutStage'] === 'address') {
+      return this.completeCatalogCheckout(session, trimmed, cart, outgoing, sink);
+    }
+
+    // Which specific button pair (if any) the LAST turn actually showed —
+    // matchOptionIndex resolves a bare numeric reply ("1"/"2") against
+    // whatever array it's given, so probing several small option-sets in a
+    // fixed sequence would make "1" always resolve to the first one
+    // checked regardless of which buttons the patient is actually looking
+    // at. Tracking the real stage removes that ambiguity.
+    const stage = session.flowVariables['searchMedicineStage'] as
+      | 'awaiting_add_decision'
+      | 'awaiting_post_add_decision'
+      | undefined;
+    // Always an array now — a single-medicine search just produces a
+    // 1-element array, so "add everything pending" is the same code path
+    // whether the patient searched one medicine or several at once.
+    const pendingAdd = session.flowVariables['pendingCatalogAdd'] as PendingCatalogAdd[] | undefined;
+    const typedCheckout = trimmed.toLowerCase() === 'checkout';
+
+    const startCheckout = async (): Promise<NodeOutcome> => {
+      if (!cart || cart.items.length === 0) {
+        await this.dispatchText(
+          session,
+          sink,
+          `Your order is empty — search a medicine and tap "Add to Order" to put something in it first.`,
+        );
+        return { action: 'wait' };
+      }
+      session.flowVariables = {
+        ...session.flowVariables,
+        checkoutStage: 'address',
+        pendingCatalogAdd: undefined,
+        searchMedicineStage: undefined,
+      };
+      await this.dispatchText(
+        session,
+        sink,
+        `Please reply with your full delivery address (house/street, city, state, pincode).`,
+      );
+      return { action: 'wait' };
+    };
+
+    const promptNextSearch = async (): Promise<NodeOutcome> => {
+      session.flowVariables = { ...session.flowVariables, pendingCatalogAdd: undefined, searchMedicineStage: undefined };
+      await this.dispatchText(
+        session,
+        sink,
+        `What medicine are you looking for? Just type the name (or type "menu" to go back).`,
+      );
+      return { action: 'wait' };
+    };
+
+    const addPendingToCart = async (): Promise<NodeOutcome> => {
+      if (!pendingAdd || pendingAdd.length === 0) return promptNextSearch();
+      const updatedCart = addMultipleToCart(cart, pendingAdd);
+      const total = updatedCart.items.reduce((s, i) => s + i.unitPriceCents * i.quantity, 0);
+      session.flowVariables = {
+        ...session.flowVariables,
+        medicineCart: updatedCart,
+        pendingCatalogAdd: undefined,
+        searchMedicineStage: 'awaiting_post_add_decision',
+      };
+      const addedLines = pendingAdd
+        .map((p) => `- 1 x ${p.name} (₹${formatRupees(p.unitPriceCents)})`)
+        .join('\n');
+      const addedHeader = pendingAdd.length === 1 ? 'Added:' : `Added ${pendingAdd.length} items:`;
+      await this.dispatchOptions(
+        session,
+        sink,
+        `${addedHeader}\n${addedLines}\n\n${cartSummary(updatedCart)}`,
+        [
+          { id: 'search', title: 'Search More', description: 'Add another medicine to this order' },
+          { id: 'checkout', title: 'Checkout', description: `Place your order — ${formatRupees(total)}` },
+        ],
+        'Choose',
+      );
+      return { action: 'wait' };
+    };
+
+    if (stage === 'awaiting_post_add_decision') {
+      const idx = matchOptionIndex(trimmed, ['Search More', 'Checkout']);
+      if (idx === 1 || typedCheckout) return startCheckout();
+      if (idx === 0) return promptNextSearch();
+      // Anything else (e.g. they just typed the next medicine name
+      // directly instead of tapping) falls through to a fresh search below.
+      session.flowVariables = { ...session.flowVariables, searchMedicineStage: undefined };
+    } else if (stage === 'awaiting_add_decision') {
+      const idx = matchOptionIndex(trimmed, ['Add to Order', 'Search Again']);
+      if (idx === 0 || ['add', 'yes', 'y'].includes(trimmed.toLowerCase())) return addPendingToCart();
+      if (idx === 1) return promptNextSearch();
+      session.flowVariables = { ...session.flowVariables, pendingCatalogAdd: undefined, searchMedicineStage: undefined };
+    } else if (typedCheckout) {
+      return startCheckout();
+    }
+
+    // Anything else — treat as a new search query. A patient listing
+    // several medicines in one message ("Paracetamol and Cough Syrup")
+    // gets each one searched separately rather than the whole string
+    // treated as a single (unmatchable) medicine name.
+    const parts = splitMedicineNames(trimmed);
+    if (parts.length > 1) {
+      return this.searchMultipleMedicines(session, sink, cart, parts);
+    }
+
+    const matches = await searchMedicineCatalog(session.tenantId, trimmed);
+    const answer = await this.ai.answerMedicineAvailabilityQuery(trimmed, matches);
+
+    // Offer the cheapest in-stock match — restricted to the cart's own shop
+    // once one exists, since an order can only ever be with one shop.
+    const candidates = matches.filter((m) => m.inStock && (!cart || m.shopId === cart.shopId));
+    const best = [...candidates].sort((a, b) => a.priceCents - b.priceCents)[0];
+
+    if (best) {
+      session.flowVariables = {
+        ...session.flowVariables,
+        pendingCatalogAdd: [
+          {
+            catalogItemId: best.catalogItemId,
+            name: best.medicineName,
+            unitPriceCents: best.priceCents,
+            shopId: best.shopId,
+            shopName: best.shopName,
+          },
+        ],
+        searchMedicineStage: 'awaiting_add_decision',
+      };
+      await this.dispatchOptions(
+        session,
+        sink,
+        answer,
+        [
+          { id: 'add', title: 'Add to Order', description: `1 x ${best.medicineName} — ${formatRupees(best.priceCents)}` },
+          { id: 'search', title: 'Search Again', description: 'Look for a different medicine' },
+        ],
+        'Choose',
+      );
+      return { action: 'wait' };
+    }
+
+    session.flowVariables = { ...session.flowVariables, pendingCatalogAdd: undefined, searchMedicineStage: undefined };
+    let reply = answer;
+    if (matches.length > 0 && cart) {
+      reply += `\n\n(Your current order is with ${cart.shopName} — this isn't available there, so it can't go in the same order. Checkout first, or search something else from ${cart.shopName}.)`;
+    }
+    reply += cart && cart.items.length > 0
+      ? `\n\n${cartSummary(cart)}\n\nSearch another medicine, or type "checkout" to place your order.`
+      : `\n\nType another medicine name to search, or type "menu" to go back.`;
+
+    await this.dispatchText(session, sink, reply);
+    return { action: 'wait' };
+  }
+
+  // Runs one catalog search per medicine name the patient listed in a
+  // single message, then offers to add whichever ones were actually found
+  // (in stock, at a consistent single shop) in one "Add to Order" tap —
+  // same shopId-consistency rule executeSearchMedicine's single-item path
+  // already enforces, just applied across several items at once instead
+  // of one at a time.
+  private async searchMultipleMedicines(
+    session: FlowSession,
+    sink: FlowSink,
+    cart: MedicineCart | undefined,
+    parts: string[],
+  ): Promise<NodeOutcome> {
+    const tenantId = session.tenantId!;
+    const preferredShopId = cart?.shopId;
+
+    const results = await Promise.all(
+      parts.map(async (part) => {
+        const matches = await searchMedicineCatalog(tenantId, part);
+        const candidates = matches.filter((m) => m.inStock && (!preferredShopId || m.shopId === preferredShopId));
+        const best = [...candidates].sort((a, b) => a.priceCents - b.priceCents)[0];
+        return { part, best };
+      }),
+    );
+
+    const found = results.filter((r): r is { part: string; best: NonNullable<typeof r.best> } => !!r.best);
+    if (found.length === 0) {
+      session.flowVariables = { ...session.flowVariables, pendingCatalogAdd: undefined, searchMedicineStage: undefined };
+      const notFoundList = parts.join(', ');
+      let reply = `Sorry, none of these are available right now: ${notFoundList}. You can upload a prescription instead so a shop can check for alternatives. 😊`;
+      reply += cart && cart.items.length > 0
+        ? `\n\n${cartSummary(cart)}\n\nSearch another medicine, or type "checkout" to place your order.`
+        : `\n\nType another medicine name to search, or type "menu" to go back.`;
+      await this.dispatchText(session, sink, reply);
+      return { action: 'wait' };
+    }
+
+    // Lock every add in this batch to ONE shop — the cart's own shop if
+    // one's already set, otherwise whichever shop the first found item
+    // came from. Anything found at a different shop gets reported as
+    // unavailable-alongside-the-rest rather than silently dropped.
+    const shopId = preferredShopId ?? found[0].best.shopId;
+    const usable = found.filter((f) => f.best.shopId === shopId);
+    const shopName = usable[0]?.best.shopName ?? found[0].best.shopName;
+    const unavailableParts = [
+      ...results.filter((r) => !r.best).map((r) => r.part),
+      ...found.filter((f) => f.best.shopId !== shopId).map((f) => f.part),
+    ];
+
+    const foundLines = usable.map((f) => `- ${f.best.medicineName} (₹${formatRupees(f.best.priceCents)}) at ${f.best.shopName}`);
+    let text = `Found ${usable.length} of ${parts.length}:\n${foundLines.join('\n')}`;
+    if (unavailableParts.length > 0) {
+      text += `\n\nNot available right now: ${unavailableParts.join(', ')}`;
+    }
+
+    const pending: PendingCatalogAdd[] = usable.map((f) => ({
+      catalogItemId: f.best.catalogItemId,
+      name: f.best.medicineName,
+      unitPriceCents: f.best.priceCents,
+      shopId: f.best.shopId,
+      shopName: f.best.shopName,
+    }));
+    const totalCents = pending.reduce((s, p) => s + p.unitPriceCents, 0);
+
+    session.flowVariables = {
+      ...session.flowVariables,
+      pendingCatalogAdd: pending,
+      searchMedicineStage: 'awaiting_add_decision',
+    };
+    await this.dispatchOptions(
+      session,
+      sink,
+      text,
+      [
+        { id: 'add', title: 'Add to Order', description: `${usable.length} item(s) from ${shopName} — ₹${formatRupees(totalCents)}` },
+        { id: 'search', title: 'Search Again', description: 'Look for different medicines' },
+      ],
+      'Choose',
+    );
+    return { action: 'wait' };
+  }
+
+  private async completeCatalogCheckout(
+    session: FlowSession,
+    addressInput: string,
+    cart: MedicineCart | undefined,
+    outgoing: WhatsAppFlowEdge[],
+    sink: FlowSink,
+  ): Promise<NodeOutcome> {
+    if (!cart || cart.items.length === 0 || !session.tenantId) {
+      await this.dispatchText(session, sink, `Something went wrong — your order was lost. Please start over.`);
+      session.flowVariables = { ...session.flowVariables, medicineCart: undefined, checkoutStage: undefined };
+      return { action: 'end' };
+    }
+    if (!addressInput) {
+      await this.dispatchText(session, sink, `Please reply with your full delivery address.`);
+      return { action: 'wait' };
+    }
+    if (!session.userId) {
+      // search_medicine deliberately isn't in AUTH_REQUIRED_NODE_TYPES —
+      // browsing/searching should work anonymously — but actually placing
+      // an order needs a real account. Reuse the same inline-signup prompt
+      // AUTH_REQUIRED_NODE_TYPES nodes get; the cart/address already
+      // collected survive in flowVariables, so once signed up the patient
+      // only needs to type "checkout" once more to finish (the post-signup
+      // fall-through re-enters this node fresh, not mid-checkout).
+      return this.promptRegistration(session, sink);
+    }
+
+    const patientUser = await AppDataSource.getRepository(User).findOne({ where: { id: session.userId } });
+    const order = await createDirectCatalogOrder({
+      tenantId: session.tenantId,
+      patientId: session.userId,
+      shopId: cart.shopId,
+      items: cart.items,
+      // One free-text reply is all a chat turn ever collects — everything
+      // goes in line1, same placeholder convention createOrderFromQuote
+      // already uses for its own (also chat-collected) address field.
+      deliveryAddressLine1: addressInput,
+      deliveryCity: '—',
+      deliveryState: '—',
+      deliveryPincode: '—',
+      deliveryPhone: patientUser?.phoneNumber ?? '',
+      // COD-only for now — no online-payment option offered for a direct
+      // catalog order yet (unlike executeOrderPayment's prescription-quote
+      // checkout, which already supports both).
+      paymentMethod: MedicineOrderPaymentMethod.COD,
+      shopAlerts: this.shopAlerts,
+      sourceNote: 'Ordered directly from shop catalog via Search Medicine',
+    });
+
+    session.flowVariables = {
+      ...session.flowVariables,
+      medicineCart: undefined,
+      pendingCatalogAdd: undefined,
+      checkoutStage: undefined,
+      orderId: order.id,
+    };
+    await this.dispatchText(
+      session,
+      sink,
+      `Order confirmed! Total ₹${formatRupees(order.totalCents)} — pay by cash on delivery. We'll keep you posted.`,
+    );
     return this.advanceTo(outgoing[0]);
   }
 

@@ -18,6 +18,12 @@ export enum WhatsAppConversationState {
   // reply with a number to pick which shop fulfills their prescription —
   // an alternative to staff or auto-mode picking one for them.
   AWAITING_QUOTE_CHOICE = 'awaiting_quote_choice',
+  // "Order Medicine" no longer jumps straight to a prescription photo —
+  // this offers the choice, then AWAITING_MEDICINE_SEARCH loops on typed
+  // medicine names (AI-answered against the tenant's own shop catalogs)
+  // until the patient picks "Upload Prescription" or types a greeting word.
+  ORDER_MEDICINE_CHOICE = 'order_medicine_choice',
+  AWAITING_MEDICINE_SEARCH = 'awaiting_medicine_search',
 }
 
 export interface WhatsAppMessageEvent {

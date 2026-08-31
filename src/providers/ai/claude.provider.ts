@@ -8,12 +8,14 @@ import {
   Message,
   PatientContext,
   PrescriptionImageCheck,
+  MedicineCatalogMatch,
 } from './ai.provider.interface';
 import { IStorageProvider } from '../storage/storage.provider.interface';
 import { env } from '../../config/env';
 import { STORAGE_PROVIDER } from '../../config/di-tokens';
 import { AppError } from '../../utils/app-error';
 import { PRESCRIPTION_CLASSIFY_PROMPT, parsePrescriptionCheck } from './prescription-classify.util';
+import { buildMedicineAvailabilityPrompt } from './medicine-availability.util';
 
 @injectable()
 export class ClaudeAiProvider implements IAiProvider {
@@ -159,6 +161,24 @@ Respond ONLY with valid JSON matching this exact schema:
     });
 
     return parsePrescriptionCheck(result);
+  }
+
+  async answerMedicineAvailabilityQuery(
+    query: string,
+    matches: MedicineCatalogMatch[],
+  ): Promise<string> {
+    const result = await this.callWithRetry(async () => {
+      const response = await this.client.messages.create({
+        model: env.AI_MODEL,
+        max_tokens: 250,
+        messages: [{ role: 'user', content: buildMedicineAvailabilityPrompt(query, matches) }],
+      });
+      const block = response.content[0];
+      if (block.type !== 'text')
+        throw AppError.unprocessable('Unexpected AI response type');
+      return block.text;
+    });
+    return result.trim();
   }
 
   private async callWithRetry<T>(fn: () => Promise<T>): Promise<T> {

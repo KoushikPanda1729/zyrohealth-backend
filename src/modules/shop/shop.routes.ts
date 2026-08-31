@@ -47,6 +47,14 @@ router.post(
     void ctrl.scanCatalogImage(req, res, next);
   },
 );
+router.post(
+  '/catalog/images',
+  requirePermission('shop_catalog.manage'),
+  uploadMiddleware.array('files', 6),
+  (req, res, next) => {
+    void ctrl.uploadCatalogImages(req, res, next);
+  },
+);
 router.get('/catalog/export', (req, res, next) => {
   void ctrl.exportCatalog(req, res, next);
 });

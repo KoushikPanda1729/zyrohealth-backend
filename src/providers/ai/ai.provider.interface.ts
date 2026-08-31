@@ -52,6 +52,13 @@ export interface PrescriptionImageCheck {
   reason: string;
 }
 
+export interface MedicineCatalogMatch {
+  shopName: string;
+  medicineName: string;
+  priceCents: number;
+  inStock: boolean;
+}
+
 export interface IAiProvider {
   chat(params: AiChatParams): Promise<AiChatResult>;
   extractStructuredData(
@@ -59,4 +66,11 @@ export interface IAiProvider {
     patientContext: PatientContext,
   ): Promise<AiStructuredResult>;
   classifyPrescriptionImage(imageUrl: string): Promise<PrescriptionImageCheck>;
+  // Turns a raw catalog-search hit list into a natural WhatsApp-style reply
+  // — grounded strictly on `matches` (empty array means genuinely not
+  // found), never invents a medicine/price/shop that isn't in the list.
+  answerMedicineAvailabilityQuery(
+    query: string,
+    matches: MedicineCatalogMatch[],
+  ): Promise<string>;
 }

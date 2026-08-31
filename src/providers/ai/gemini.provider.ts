@@ -7,6 +7,7 @@ import {
   Message,
   PatientContext,
   PrescriptionImageCheck,
+  MedicineCatalogMatch,
 } from './ai.provider.interface';
 
 // TODO: Implement Gemini provider
@@ -24,6 +25,13 @@ export class GeminiAiProvider implements IAiProvider {
   }
 
   classifyPrescriptionImage(_imageUrl: string): Promise<PrescriptionImageCheck> {
+    throw new Error('GeminiAiProvider not implemented');
+  }
+
+  answerMedicineAvailabilityQuery(
+    _query: string,
+    _matches: MedicineCatalogMatch[],
+  ): Promise<string> {
     throw new Error('GeminiAiProvider not implemented');
   }
 }

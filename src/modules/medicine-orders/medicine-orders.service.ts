@@ -291,6 +291,7 @@ export class MedicineOrdersService {
       order,
       patient?.phoneNumber,
       MedicineOrderStatus.CANCELLED,
+      reason,
     );
 
     return order;

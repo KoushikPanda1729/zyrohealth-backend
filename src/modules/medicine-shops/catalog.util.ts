@@ -29,6 +29,7 @@ export interface CatalogItemInput {
   isControlledDrug?: boolean;
   packSize?: number | null;
   subUnit?: string | null;
+  imageUrls?: string[];
 }
 
 // Pulls the optional inventory fields out of a request body — shared by
@@ -60,6 +61,9 @@ export function extractCatalogFieldsFromBody(
   if (typeof body.isControlledDrug === 'boolean') fields.isControlledDrug = body.isControlledDrug;
   if ('packSize' in body) fields.packSize = (body.packSize as number | null) ?? null;
   if ('subUnit' in body) fields.subUnit = (body.subUnit as string | null) ?? null;
+  if (Array.isArray(body.imageUrls)) {
+    fields.imageUrls = (body.imageUrls as unknown[]).filter((u): u is string => typeof u === 'string');
+  }
   return fields;
 }
 
@@ -85,6 +89,7 @@ export function applyCatalogFields(
   if (data.isControlledDrug !== undefined) item.isControlledDrug = data.isControlledDrug;
   if (data.packSize !== undefined) item.packSize = data.packSize;
   if (data.subUnit !== undefined) item.subUnit = data.subUnit;
+  if (data.imageUrls !== undefined) item.imageUrls = data.imageUrls;
 }
 
 // ── Stock ledger — an append-only record of every quantity change, so a
