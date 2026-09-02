@@ -119,6 +119,21 @@ function parseIntOrUndefined(raw?: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+// The DB column is a strict Postgres `date`, so anything that isn't a real
+// calendar date (a placeholder like "TBD", a typo, free text) must be
+// rejected here — otherwise it reaches the DB as an invalid `date` literal
+// and blows up the whole request with an unhandled query error.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseExpiryDate(raw?: string): string | null | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  if (!ISO_DATE_RE.test(trimmed)) return undefined;
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return trimmed;
+}
+
 function normalizeRow(raw: RawRow, rowNumber: number): ParsedCatalogRow {
   const name = raw.name?.trim();
   if (!name) return { rowNumber, error: 'Missing medicine name' };
@@ -126,6 +141,13 @@ function normalizeRow(raw: RawRow, rowNumber: number): ParsedCatalogRow {
   const priceCents = parsePriceToCents(raw.price);
   if (priceCents === undefined)
     return { rowNumber, error: 'Missing or invalid price' };
+
+  const expiryDate = parseExpiryDate(raw.expiryDate);
+  if (expiryDate === undefined)
+    return {
+      rowNumber,
+      error: `Invalid expiry date "${raw.expiryDate}" (expected YYYY-MM-DD)`,
+    };
 
   return {
     rowNumber,
@@ -136,7 +158,7 @@ function normalizeRow(raw: RawRow, rowNumber: number): ParsedCatalogRow {
       unit: raw.unit?.trim() || undefined,
       rackLocation: raw.rackLocation?.trim() || null,
       batchNumber: raw.batchNumber?.trim() || null,
-      expiryDate: raw.expiryDate?.trim() || null,
+      expiryDate,
       manufacturer: raw.manufacturer?.trim() || null,
       sku: raw.sku?.trim() || null,
     },
